@@ -430,8 +430,216 @@ app.get('/api/posts/search', async (req, res) => {
   }
 });
 
+//2) API liên quan đến users
+//3) API liên quan đến quản lý tag
+// Tạo một tag mới
+app.post('/api/tags', async (req, res) => {
+  const { TagName } = req.body;
 
+  // Kiểm tra xem TagName có được cung cấp và hợp lệ
+  if (!TagName || typeof TagName !== 'string' || TagName.trim() === '') {
+      return res.status(400).json({ error: 'TagName is required and must be a non-empty string' });
+  }
 
+  try {
+      // Thêm tag mới vào bảng Tags
+      const result = await pool.query(
+          'INSERT INTO Tags (TagName) VALUES ($1) RETURNING TagID, TagName',
+          [TagName.trim()]
+      );
+
+      res.status(201).json({
+          message: 'Tag created successfully',
+          tag: result.rows[0]
+      });
+  } catch (error) {
+      // Xử lý lỗi trùng lặp TagName (do constraint UNIQUE)
+      if (error.code === '23505') {
+          return res.status(400).json({ error: 'TagName already exists' });
+      }
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+// Lấy danh sách của tất cả các tag
+app.get('/api/tags', async (req, res) => {
+  try {
+    const { search } = req.query;
+    let query = 'SELECT * FROM Tags';
+    let params = [];
+
+    if (search) {
+      query += ' WHERE TagName ILIKE $1';
+      params.push(`%${search}%`);
+    }
+
+    query += ' ORDER BY TagName ASC';
+    
+    const result = await pool.query(query, params);
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error('Error fetching tags:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+// Gắn tags vào posts
+app.post('/api/posts/:postId/tags', async (req, res) => {
+  const { postId } = req.params;
+  const { tagId, postId: bodyPostId } = req.body; // Lấy tagId và postId từ body
+
+  // Kiểm tra postId trong params
+  const postIdNum = Number(postId);
+  if (isNaN(postIdNum) || postIdNum <= 0) {
+      return res.status(400).json({ error: 'postId must be a valid positive number' });
+  }
+
+  // Kiểm tra postId trong body có khớp với params không
+  if (bodyPostId && Number(bodyPostId) !== postIdNum) {
+      return res.status(400).json({ error: 'postId in body does not match postId in URL' });
+  }
+
+  // Kiểm tra tagId là mảng và không rỗng
+  if (!Array.isArray(tagId) || tagId.length === 0) {
+      return res.status(400).json({ error: 'tagId must be a non-empty array' });
+  }
+
+  // Kiểm tra tất cả tagId là số hợp lệ
+  const invalidTagIds = tagId.filter(id => isNaN(id) || id <= 0);
+  if (invalidTagIds.length > 0) {
+      return res.status(400).json({ error: 'All tagIds must be valid positive numbers' });
+  }
+
+  try {
+      // Kiểm tra xem PostID có tồn tại
+      const postCheck = await pool.query('SELECT 1 FROM Posts WHERE PostID = $1', [postIdNum]);
+      if (postCheck.rowCount === 0) {
+          return res.status(404).json({ error: 'Post not found' });
+      }
+
+      // Kiểm tra xem tất cả TagID có tồn tại
+      const tagCheck = await pool.query(
+          'SELECT TagID FROM Tags WHERE TagID = ANY($1)',
+          [tagId]
+      );
+      if (tagCheck.rows.length !== tagId.length) {
+          return res.status(400).json({ error: 'One or more tags not found' });
+      }
+
+      // Gắn tags vào post
+      const values = tagId.map(tagId => `(${postIdNum}, ${tagId})`).join(',');
+      await pool.query(
+          `INSERT INTO PostTags (PostID, TagID) VALUES ${values} 
+           ON CONFLICT (PostID, TagID) DO NOTHING`
+      );
+
+      // Lấy danh sách tag hiện tại của post
+      const result = await pool.query(
+          `SELECT t.TagID, t.TagName 
+           FROM PostTags pt 
+           JOIN Tags t ON pt.TagID = t.TagID 
+           WHERE pt.PostID = $1`,
+          [postIdNum]
+      );
+
+      res.status(201).json({
+          message: 'Tags added to post successfully',
+          postId: postIdNum,
+          tags: result.rows
+      });
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+// Liệt kê posts và các tags tương ứng 
+app.get('/api/posts/tags', async (req, res) => {
+  try {
+      const result = await pool.query(`
+          SELECT 
+              p.PostID,
+              COALESCE(
+                  ARRAY_AGG(t.TagName) FILTER (WHERE t.TagName IS NOT NULL), 
+                  '{}'
+              ) as Tags
+          FROM Posts p
+          LEFT JOIN PostTags pt ON p.PostID = pt.PostID
+          LEFT JOIN Tags t ON pt.TagID = t.TagID
+          GROUP BY p.PostID
+          ORDER BY p.PostID
+      `);
+
+      res.json(result.rows);
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+// Xóa tags khỏi post
+app.delete('/api/posts/:postId/tags', async (req, res) => {
+  const { postId } = req.params;
+  const { tagIds } = req.body; // Mảng các TagID cần xóa
+
+  // Kiểm tra postId trong params
+  const postIdNum = Number(postId);
+  if (isNaN(postIdNum) || postIdNum <= 0) {
+      return res.status(400).json({ error: 'postId must be a valid positive number' });
+  }
+
+  // Kiểm tra tagIds là mảng và không rỗng
+  if (!Array.isArray(tagIds) || tagIds.length === 0) {
+      return res.status(400).json({ error: 'tagIds must be a non-empty array' });
+  }
+
+  // Kiểm tra tất cả tagIds là số hợp lệ
+  const invalidTagIds = tagIds.filter(id => isNaN(id) || id <= 0);
+  if (invalidTagIds.length > 0) {
+      return res.status(400).json({ error: 'All tagIds must be valid positive numbers' });
+  }
+
+  try {
+      // Kiểm tra xem PostID có tồn tại
+      const postCheck = await pool.query('SELECT 1 FROM Posts WHERE PostID = $1', [postIdNum]);
+      if (postCheck.rowCount === 0) {
+          return res.status(404).json({ error: 'Post not found' });
+      }
+
+      // Kiểm tra xem tất cả TagID có tồn tại
+      const tagCheck = await pool.query(
+          'SELECT TagID FROM Tags WHERE TagID = ANY($1)',
+          [tagIds]
+      );
+      if (tagCheck.rows.length !== tagIds.length) {
+          return res.status(400).json({ error: 'One or more tags not found' });
+      }
+
+      // Xóa các tags khỏi post
+      const deleteResult = await pool.query(
+          `DELETE FROM PostTags 
+           WHERE PostID = $1 AND TagID = ANY($2) 
+           RETURNING TagID`,
+          [postIdNum, tagIds]
+      );
+
+      // Lấy danh sách tag hiện tại của post sau khi xóa
+      const remainingTags = await pool.query(
+          `SELECT t.TagID, t.TagName 
+           FROM PostTags pt 
+           JOIN Tags t ON pt.TagID = t.TagID 
+           WHERE pt.PostID = $1`,
+          [postIdNum]
+      );
+
+      res.status(200).json({
+          message: 'Tags removed from post successfully',
+          postId: postIdNum,
+          removedTagIds: deleteResult.rows.map(row => row.TagID),
+          remainingTags: remainingTags.rows
+      });
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // Xử lý lỗi 404
 app.use((req, res) => {
