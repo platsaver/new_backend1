@@ -37,6 +37,8 @@ CREATE TABLE Posts (
     FOREIGN KEY (CategoryID) REFERENCES Categories(CategoryID) ON DELETE SET NULL,
     FOREIGN KEY (SubCategoryID) REFERENCES SubCategories(SubCategoryID) ON DELETE SET NULL
 );
+ALTER TABLE Posts
+ADD Featured BOOLEAN DEFAULT FALSE;
 CREATE TABLE Comments (
     CommentID SERIAL PRIMARY KEY,
     PostID INT NOT NULL,
@@ -97,39 +99,63 @@ DROP FUNCTION IF EXISTS reorder_posts_display_order;
 ALTER TABLE Posts
 DROP COLUMN IF EXISTS DisplayOrder;
 
--- Trigger tự động phân quyền mỗi khi đăng ký tài khoản mới
-CREATE OR REPLACE FUNCTION assign_user_role()
+-- Hàm trigger để gán quyền khi tạo tài khoản mới
+CREATE OR REPLACE FUNCTION assign_user_role_on_insert()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- Kiểm tra giá trị Role và gán role PostgreSQL tương ứng
+  -- Gán quyền dựa trên giá trị cột Role
   IF NEW.Role = 'Author' THEN
-    -- Gán role Author cho user PostgreSQL có tên là NEW.UserName
     EXECUTE format('GRANT Author TO %I', NEW.UserName);
   ELSIF NEW.Role = 'Admin' THEN
-    -- Gán role Admin
     EXECUTE format('GRANT Admin TO %I', NEW.UserName);
   ELSIF NEW.Role = 'NguoiDung' THEN
-    -- Gán role NguoiDung
     EXECUTE format('GRANT NguoiDung TO %I', NEW.UserName);
   ELSE
-    -- Nếu Role không hợp lệ, ghi log hoặc bỏ qua
     RAISE NOTICE 'Role % không hợp lệ, không gán quyền', NEW.Role;
   END IF;
 
   RETURN NEW;
 EXCEPTION
   WHEN OTHERS THEN
-    -- Nếu lỗi (ví dụ: user PostgreSQL không tồn tại), ghi log và tiếp tục
-    RAISE NOTICE 'Lỗi khi gán role cho user %: %', NEW.UserName, SQLERRM;
+    RAISE NOTICE 'Lỗi khi gán quyền cho user %: %', NEW.UserName, SQLERRM;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- Bước 3: Tạo trigger
-CREATE TRIGGER trigger_assign_user_role
+-- Trigger để gán quyền khi tạo tài khoản
+CREATE TRIGGER trigger_assign_user_role_on_insert
 AFTER INSERT ON Users
 FOR EACH ROW
-EXECUTE FUNCTION assign_user_role();
+EXECUTE FUNCTION assign_user_role_on_insert();
+
+-- Hàm trigger để thu hồi quyền khi xóa tài khoản
+CREATE OR REPLACE FUNCTION revoke_user_role_on_delete()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Thu hồi quyền dựa trên giá trị cột Role
+  IF OLD.Role = 'Author' THEN
+    EXECUTE format('REVOKE Author FROM %I', OLD.UserName);
+  ELSIF OLD.Role = 'Admin' THEN
+    EXECUTE format('REVOKE Admin FROM %I', OLD.UserName);
+  ELSIF OLD.Role = 'NguoiDung' THEN
+    EXECUTE format('REVOKE NguoiDung FROM %I', OLD.UserName);
+  ELSE
+    RAISE NOTICE 'Role % không hợp lệ, không thu hồi quyền', OLD.Role;
+  END IF;
+
+  RETURN OLD;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE NOTICE 'Lỗi khi thu hồi quyền từ user %: %', OLD.UserName, SQLERRM;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger để thu hồi quyền khi xóa tài khoản
+CREATE TRIGGER trigger_revoke_user_role_on_delete
+AFTER DELETE ON Users
+FOR EACH ROW
+EXECUTE FUNCTION revoke_user_role_on_delete();
 
 /*---*/
 
@@ -358,35 +384,132 @@ SELECT usename FROM pg_user WHERE usename IN ('john_doe', 'jane_smith');
 SELECT * FROM pg_roles WHERE rolname = 'admin';
 
 -- Data for testing
+
+-- Reset sequence of serial key
+-- Reset sequence cho bảng Users
+ALTER SEQUENCE Users_UserID_seq RESTART WITH 1;
+
+-- Reset sequence cho bảng Categories
+ALTER SEQUENCE Categories_CategoryID_seq RESTART WITH 1;
+
+-- Reset sequence cho bảng SubCategories
+ALTER SEQUENCE SubCategories_SubCategoryID_seq RESTART WITH 1;
+
+-- Reset sequence cho bảng Posts
+ALTER SEQUENCE Posts_PostID_seq RESTART WITH 1;
+
+-- Reset sequence cho bảng Comments
+ALTER SEQUENCE Comments_CommentID_seq RESTART WITH 1;
+
+-- Reset sequence cho bảng Tags
+ALTER SEQUENCE Tags_TagID_seq RESTART WITH 1;
+
+-- Reset sequence cho bảng Media
+ALTER SEQUENCE Media_MediaID_seq RESTART WITH 1;
+delete from categories;
+delete from subcategories;
+delete from tags;
+delete from posts;
+delete from comments;
+delete from posttags;
+delete from users;
+
+
 -- Chèn dữ liệu vào bảng Users
 INSERT INTO Users (UserName, Role, Password, Email) VALUES
 ('john_doe', 'Author', 'hashed_password_123', 'john@example.com'),
 ('jane_smith', 'Admin', 'hashed_password_456', 'jane@example.com');
+insert into users (username, role, password, email) values
+('nguyenvanA', 'Author', 'hashed_password_1', 'nguyenvana@example.com'),
+('tranthiB', 'Author', 'hashed_password_2', 'tranthib@example.com'), 
+('quan', 'NguoiDung', 'quan123', 'quan123@gmail.com');
 select * from users
--- Chèn dữ liệu vào bảng Categories
+
 INSERT INTO Categories (CategoryName) VALUES
-('ThoiSu'),
-('KinhDoanh'), 
-('BatDongSan'), 
-('PhapLuat');
-
-
--- Chèn dữ liệu vào bảng SubCategories
+('Thời Sự'),
+('Kinh doanh'),
+('Bất động sản'),
+('Pháp luật');
+select * from categories
 INSERT INTO SubCategories (CategoryID, SubCategoryName) VALUES
-(1, 'TrongNuoc'),
-(1, 'QuocTe'),
-(2, 'QuocTe'),
-(2, 'ChungKhoan'),
-(2, 'DoanhNghiep'),
-(3, 'ChinhSach'),
-(3, 'ThiTruong'),
-(3, 'DuAn'),
-(4, 'TrongNuoc'),
-(4, 'QuocTe');
-
--- Chèn dữ liệu vào bảng Tags
+((SELECT CategoryID FROM Categories WHERE CategoryName = 'Thời Sự'), 'Trong nước'),
+((SELECT CategoryID FROM Categories WHERE CategoryName = 'Thời Sự'), 'Quốc tế'),
+((SELECT CategoryID FROM Categories WHERE CategoryName = 'Kinh doanh'), 'Doanh nghiệp'),
+((SELECT CategoryID FROM Categories WHERE CategoryName = 'Kinh doanh'), 'Chứng khoán'),
+((SELECT CategoryID FROM Categories WHERE CategoryName = 'Kinh doanh'), 'Quốc tế'),
+((SELECT CategoryID FROM Categories WHERE CategoryName = 'Bất động sản'), 'Chính sách'),
+((SELECT CategoryID FROM Categories WHERE CategoryName = 'Bất động sản'), 'Thị trường'),
+((SELECT CategoryID FROM Categories WHERE CategoryName = 'Bất động sản'), 'Dự án'),
+((SELECT CategoryID FROM Categories WHERE CategoryName = 'Pháp luật'), 'Trong nước'),
+((SELECT CategoryID FROM Categories WHERE CategoryName = 'Pháp luật'), 'Quốc tế');
+select * from subcategories
 INSERT INTO Tags (TagName) VALUES
-('batdongsan'),
-('phapluat'),
-('thoisu'),
-('kinhdoanh');
+('nóng'),
+('kinh tế'),
+('bất động sản'),
+('pháp luật'),
+('quốc tế');
+select * from tags
+
+INSERT INTO Posts (UserID, CategoryID, SubCategoryID, Title, Content, Status, Featured) VALUES
+((SELECT UserID FROM Users WHERE UserName = 'nguyenvanA'), 
+ (SELECT CategoryID FROM Categories WHERE CategoryName = 'Thời Sự'), 
+ (SELECT SubCategoryID FROM SubCategories WHERE SubCategoryName = 'Trong nước' AND CategoryID = (SELECT CategoryID FROM Categories WHERE CategoryName = 'Thời Sự')), 
+ 'Cơn bão số 5 đổ bộ miền Trung', 
+ 'Nội dung chi tiết về cơn bão số 5 và ảnh hưởng đến các tỉnh miền Trung...', 
+ 'Published', TRUE),
+((SELECT UserID FROM Users WHERE UserName = 'tranthiB'), 
+ (SELECT CategoryID FROM Categories WHERE CategoryName = 'Kinh doanh'), 
+ (SELECT SubCategoryID FROM SubCategories WHERE SubCategoryName = 'Chứng khoán' AND CategoryID = (SELECT CategoryID FROM Categories WHERE CategoryName = 'Kinh doanh')), 
+ 'VN-Index vượt mốc 1.300 điểm', 
+ 'Phân tích thị trường chứng khoán tuần qua và dự báo xu hướng...', 
+ 'Published', FALSE),
+((SELECT UserID FROM Users WHERE UserName = 'nguyenvanA'), 
+ (SELECT CategoryID FROM Categories WHERE CategoryName = 'Bất động sản'), 
+ (SELECT SubCategoryID FROM SubCategories WHERE SubCategoryName = 'Thị trường' AND CategoryID = (SELECT CategoryID FROM Categories WHERE CategoryName = 'Bất động sản')), 
+ 'Giá nhà đất Hà Nội tăng đột biến', 
+ 'Báo cáo về giá bất động sản tại Hà Nội trong quý 3/2025...', 
+ 'Draft', TRUE),
+((SELECT UserID FROM Users WHERE UserName = 'tranthiB'), 
+ (SELECT CategoryID FROM Categories WHERE CategoryName = 'Pháp luật'), 
+ (SELECT SubCategoryID FROM SubCategories WHERE SubCategoryName = 'Quốc tế' AND CategoryID = (SELECT CategoryID FROM Categories WHERE CategoryName = 'Pháp luật')), 
+ 'Vụ án quốc tế gây tranh cãi', 
+ 'Thông tin về vụ án liên quan đến luật pháp quốc tế...', 
+ 'Published', FALSE);
+ select * from posts
+
+ INSERT INTO Comments (PostID, UserID, Content) VALUES
+((SELECT PostID FROM Posts WHERE Title = 'Cơn bão số 5 đổ bộ miền Trung'), 
+ (SELECT UserID FROM Users WHERE UserName = 'nguyenvanA'), 
+ 'Hy vọng chính quyền hỗ trợ kịp thời cho người dân!'),
+((SELECT PostID FROM Posts WHERE Title = 'VN-Index vượt mốc 1.300 điểm'), 
+ (SELECT UserID FROM Users WHERE UserName = 'quan'), 
+ 'Tuyệt vời, thị trường đang rất sôi động!'),
+((SELECT PostID FROM Posts WHERE Title = 'Giá nhà đất Hà Nội tăng đột biến'), 
+ (SELECT UserID FROM Users WHERE UserName = 'tranthiB'), 
+ 'Cần chính sách kiểm soát giá cả.');
+ select * from comments
+
+INSERT INTO PostTags (PostID, TagID) VALUES
+((SELECT PostID FROM Posts WHERE Title = 'Cơn bão số 5 đổ bộ miền Trung'), 
+ (SELECT TagID FROM Tags WHERE TagName = 'nóng')),
+((SELECT PostID FROM Posts WHERE Title = 'VN-Index vượt mốc 1.300 điểm'), 
+ (SELECT TagID FROM Tags WHERE TagName = 'kinh tế')),
+((SELECT PostID FROM Posts WHERE Title = 'VN-Index vượt mốc 1.300 điểm'), 
+ (SELECT TagID FROM Tags WHERE TagName = 'quốc tế')),
+((SELECT PostID FROM Posts WHERE Title = 'Giá nhà đất Hà Nội tăng đột biến'), 
+ (SELECT TagID FROM Tags WHERE TagName = 'bất động sản'));
+ select * from posttags
+
+ select * from subcategories
+ select * from categories
+ select * from users
+ select * from posts
+
+SELECT PostID, UserID, CategoryID, SubCategoryID, Title, Content, CreatedAtDate, UpdatedAtDate, Status, Featured 
+      FROM Posts
+      WHERE Featured = TRUE
+      ORDER BY CreatedAtDate DESC
+      LIMIT 5;
+
+select * from Categories
