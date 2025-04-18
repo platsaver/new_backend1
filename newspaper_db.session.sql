@@ -22,6 +22,11 @@ CREATE TABLE SubCategories (
     FOREIGN KEY (CategoryID) REFERENCES Categories(CategoryID) ON DELETE CASCADE,
     UNIQUE (CategoryID, SubCategoryName)
 );
+ALTER TABLE Categories
+ADD COLUMN BannerURL TEXT;
+
+ALTER TABLE SubCategories
+ADD COLUMN BannerURL TEXT;
 
 CREATE TABLE Posts (
     PostID SERIAL PRIMARY KEY,

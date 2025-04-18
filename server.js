@@ -819,6 +819,8 @@ app.delete('/api/media/:mediaId', async (req, res) => {
   }
 });
 
+// 5) API liên quan đến quản lý giao diện các subcategories
+
 // Xử lý lỗi 404
 app.use((req, res) => {
     res.status(404).json({ error: 'Không tìm thấy endpoint' });
