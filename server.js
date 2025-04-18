@@ -45,6 +45,15 @@ const upload = multer({
   storage,
   fileFilter
 });
+// Middleware xử lý lỗi Multer
+const handleMulterError = (err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+      return res.status(400).json({ error: err.message });
+  } else if (err) {
+      return res.status(400).json({ error: err.message });
+  }
+  next();
+};
 
 // Kiểm tra kết nối database
 pool.connect((err, client, release) => {
@@ -819,7 +828,149 @@ app.delete('/api/media/:mediaId', async (req, res) => {
   }
 });
 
-// 5) API liên quan đến quản lý giao diện các subcategories
+// 5) API liên quan đến quản lý banner các subcategories
+// API: Cập nhật banner cho Category
+app.post('/api/categories/:categoryId/banner', upload.single('banner'), handleMulterError, async (req, res) => {
+  const { categoryId } = req.params;
+
+  const categoryIdNum = Number(categoryId);
+  if (isNaN(categoryIdNum) || categoryIdNum <= 0) {
+      return res.status(400).json({ error: 'categoryId must be a valid positive number' });
+  }
+
+  if (!req.file) {
+      return res.status(400).json({ error: 'No banner image provided' });
+  }
+
+  try {
+      // Kiểm tra xem CategoryID có tồn tại
+      const categoryCheck = await pool.query(
+          'SELECT BannerURL FROM Categories WHERE CategoryID = $1',
+          [categoryIdNum]
+      );
+      if (categoryCheck.rowCount === 0) {
+          await fs.unlink(req.file.path).catch(err => console.error(`Error deleting file: ${err}`));
+          return res.status(404).json({ error: 'Category not found' });
+      }
+
+      // Xóa banner cũ nếu có
+      const oldBannerUrl = categoryCheck.rows[0].BannerURL;
+      if (typeof oldBannerUrl === 'string' && oldBannerUrl.trim() !== '') {
+          const oldFilePath = path.join(__dirname, 'public', oldBannerUrl);
+          await fs.unlink(oldFilePath).catch(err => console.error(`Error deleting old banner: ${err}`));
+      }
+
+      // Lưu banner mới
+      const fileType = await fileTypeFromFile(req.file.path);
+      const bannerUrl = `/uploads/${req.file.filename}`;
+
+      const result = await pool.query(
+          `UPDATE Categories 
+           SET BannerURL = $1 
+           WHERE CategoryID = $2 
+           RETURNING CategoryID, CategoryName, BannerURL`,
+          [bannerUrl, categoryIdNum]
+      );
+
+      res.status(200).json({
+          message: 'Banner updated successfully',
+          category: result.rows[0]
+      });
+  } catch (error) {
+      await fs.unlink(req.file.path).catch(err => console.error(`Error deleting file: ${err}`));
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// API: Cập nhật banner cho SubCategory
+app.post('/api/subcategories/:subCategoryId/banner', upload.single('banner'), handleMulterError, async (req, res) => {
+  const { subCategoryId } = req.params;
+
+  const subCategoryIdNum = Number(subCategoryId);
+  if (isNaN(subCategoryIdNum) || subCategoryIdNum <= 0) {
+      return res.status(400).json({ error: 'subCategoryId must be a valid positive number' });
+  }
+
+  if (!req.file) {
+      return res.status(400).json({ error: 'No banner image provided' });
+  }
+
+  try {
+      // Kiểm tra xem SubCategoryID có tồn tại
+      const subCategoryCheck = await pool.query(
+          'SELECT BannerURL FROM SubCategories WHERE SubCategoryID = $1',
+          [subCategoryIdNum]
+      );
+      if (subCategoryCheck.rowCount === 0) {
+          await fs.unlink(req.file.path).catch(err => console.error(`Error deleting file: ${err}`));
+          return res.status(404).json({ error: 'SubCategory not found' });
+      }
+
+      // Xóa banner cũ nếu có
+      const oldBannerUrl = subCategoryCheck.rows[0].BannerURL;
+      if (typeof oldBannerUrl === 'string' && oldBannerUrl.trim() !== '') {
+          const oldFilePath = path.join(__dirname, 'public', oldBannerUrl);
+          await fs.unlink(oldFilePath).catch(err => console.error(`Error deleting old banner: ${err}`));
+      }
+
+      // Lưu banner mới
+      const fileType = await fileTypeFromFile(req.file.path);
+      const bannerUrl = `/uploads/${req.file.filename}`;
+
+      const result = await pool.query(
+          `UPDATE SubCategories 
+           SET BannerURL = $1 
+           WHERE SubCategoryID = $2 
+           RETURNING SubCategoryID, CategoryID, SubCategoryName, BannerURL`,
+          [bannerUrl, subCategoryIdNum]
+      );
+
+      res.status(200).json({
+          message: 'Banner updated successfully',
+          subCategory: result.rows[0]
+      });
+  } catch (error) {
+      await fs.unlink(req.file.path).catch(err => console.error(`Error deleting file: ${err}`));
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Liệt kê tất cả categories và subcategories
+app.get('/api/categories', async (req, res) => {
+  try {
+      const categoriesResult = await pool.query(`
+          SELECT 
+              c.CategoryID,
+              c.CategoryName,
+              c.BannerURL,
+              COALESCE(
+                  ARRAY_AGG(
+                      JSON_BUILD_OBJECT(
+                          'SubCategoryID', sc.SubCategoryID,
+                          'CategoryID', sc.CategoryID,
+                          'SubCategoryName', sc.SubCategoryName,
+                          'BannerURL', sc.BannerURL
+                      )
+                  ) FILTER (WHERE sc.SubCategoryID IS NOT NULL),
+                  '{}'
+              ) as subCategories
+          FROM Categories c
+          LEFT JOIN SubCategories sc ON c.CategoryID = sc.CategoryID
+          GROUP BY c.CategoryID, c.CategoryName, c.BannerURL
+          ORDER BY c.CategoryID
+      `);
+
+      res.status(200).json({
+          message: 'Categories and subcategories retrieved successfully',
+          categories: categoriesResult.rows
+      });
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // Xử lý lỗi 404
 app.use((req, res) => {
