@@ -1,9 +1,14 @@
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
+const fs = require('fs').promises;
+const path = require('path');
+const multer = require('multer');
+const { fileTypeFromFile } = require('file-type');
 
 const app = express();
 const port = 3000; // Cổng server
+app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 
 // Middleware
 app.use(cors()); // Cho phép CORS
@@ -16,6 +21,29 @@ const pool = new Pool({
     user: 'postgres', // Thay bằng username của bạn
     password: '1234', // Thay bằng password của bạn
     database: 'newspaper_db' // Thay bằng tên database của bạn
+});
+// Cấu hình Multer để upload ảnh
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+      cb(null, path.join(__dirname, 'public/uploads'));
+  },
+  filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, `${uniqueSuffix}${ext}`);
+  }
+});
+const fileFilter = (req, file, cb) => {
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
+  if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+  } else {
+      cb(new Error('Only JPEG, PNG, and GIF images are allowed'), false);
+  }
+};
+const upload = multer({
+  storage,
+  fileFilter
 });
 
 // Kiểm tra kết nối database
@@ -634,6 +662,156 @@ app.delete('/api/posts/:postId/tags', async (req, res) => {
           postId: postIdNum,
           removedTagIds: deleteResult.rows.map(row => row.TagID),
           remainingTags: remainingTags.rows
+      });
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+//3) API liên quan đến quản lý media
+
+// Tải ảnh lên cho posts
+app.post('/api/posts/:postId/media', upload.single('image'), async (req, res) => {
+  const { postId } = req.params;
+
+  const postIdNum = Number(postId);
+  if (isNaN(postIdNum) || postIdNum <= 0) {
+      return res.status(400).json({ error: 'postId must be a valid positive number' });
+  }
+
+  if (!req.file) {
+      return res.status(400).json({ error: 'No image file provided' });
+  }
+
+  try {
+      // Kiểm tra xem PostID có tồn tại
+      const postCheck = await pool.query('SELECT 1 FROM Posts WHERE PostID = $1', [postIdNum]);
+      if (postCheck.rowCount === 0) {
+          // Xóa tệp đã upload nếu post không tồn tại
+          await fs.unlink(req.file.path).catch(err => console.error(`Error deleting file: ${err}`));
+          return res.status(404).json({ error: 'Post not found' });
+      }
+
+      // Xác định loại MIME của tệp
+      const fileType = await fileTypeFromFile(req.file.path);
+      const mediaType = fileType ? fileType.mime : req.file.mimetype;
+
+      // Tạo MediaURL (đường dẫn tương đối)
+      const mediaUrl = `/uploads/${req.file.filename}`;
+
+      // Lưu metadata vào bảng Media
+      const result = await pool.query(
+          `INSERT INTO Media (PostID, MediaURL, MediaType) 
+           VALUES ($1, $2, $3) 
+           RETURNING MediaID, PostID, MediaURL, MediaType, CreatedAtDate`,
+          [postIdNum, mediaUrl, mediaType]
+      );
+
+      res.status(201).json({
+          message: 'Image uploaded successfully',
+          media: result.rows[0]
+      });
+  } catch (error) {
+      // Xóa tệp đã upload nếu có lỗi
+      await fs.unlink(req.file.path).catch(err => console.error(`Error deleting file: ${err}`));
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Xem tất cả các media có trong hệ thống
+app.get('/api/media', async (req, res) => {
+  const { postId } = req.query;
+
+  try {
+      let query = `
+          SELECT 
+              MediaID,
+              PostID,
+              MediaURL,
+              MediaType,
+              CreatedAtDate
+          FROM Media
+      `;
+      let queryParams = [];
+      let conditions = [];
+
+      // Lọc theo postId nếu có
+      if (postId) {
+          const postIdNum = Number(postId);
+          if (isNaN(postIdNum) || postIdNum <= 0) {
+              return res.status(400).json({ error: 'postId must be a valid positive number' });
+          }
+          conditions.push(`PostID = $${queryParams.length + 1}`);
+          queryParams.push(postIdNum);
+      }
+
+      // Thêm điều kiện WHERE nếu có
+      if (conditions.length > 0) {
+          query += ` WHERE ${conditions.join(' AND ')}`;
+      }
+
+      // Sắp xếp theo CreatedAtDate giảm dần
+      query += ` ORDER BY CreatedAtDate DESC`;
+
+      const result = await pool.query(query, queryParams);
+
+      res.status(200).json({
+          message: 'Media retrieved successfully',
+          media: result.rows
+      });
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Xóa ảnh
+app.delete('/api/media/:mediaId', async (req, res) => {
+  const { mediaId } = req.params;
+
+  const mediaIdNum = Number(mediaId);
+  if (isNaN(mediaIdNum) || mediaIdNum <= 0) {
+      return res.status(400).json({ error: 'mediaId must be a valid positive number' });
+  }
+
+  try {
+      // Lấy thông tin media trước khi xóa
+      const mediaCheck = await pool.query(
+          `SELECT MediaURL 
+           FROM Media 
+           WHERE MediaID = $1`,
+          [mediaIdNum]
+      );
+
+      if (mediaCheck.rowCount === 0) {
+          return res.status(404).json({ error: 'Media not found' });
+      }
+
+      const mediaUrl = mediaCheck.rows[0].MediaURL;
+
+      // Xóa bản ghi trong bảng Media
+      await pool.query(
+          `DELETE FROM Media 
+           WHERE MediaID = $1`,
+          [mediaIdNum]
+      );
+
+      // Kiểm tra mediaUrl trước khi xóa tệp
+      if (typeof mediaUrl === 'string' && mediaUrl.trim() !== '') {
+          const filePath = path.join(__dirname, 'public', mediaUrl);
+          await fs.unlink(filePath).catch(err => {
+              console.error(`Error deleting file: ${err}`);
+              // Không trả về lỗi nếu tệp không tồn tại
+          });
+      } else {
+          console.warn(`Warning: MediaURL is invalid or empty for MediaID ${mediaIdNum}`);
+      }
+
+      res.status(200).json({
+          message: 'Image deleted successfully',
+          mediaId: mediaIdNum
       });
   } catch (error) {
       console.error(error);
