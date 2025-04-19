@@ -9,7 +9,7 @@ CREATE TABLE Users (
 );
 ALTER TABLE Users
 ALTER COLUMN Role SET DEFAULT 'NguoiDung';
-
+select * from users
 CREATE TABLE Categories (
     CategoryID SERIAL PRIMARY KEY,
     CategoryName VARCHAR(255) NOT NULL,

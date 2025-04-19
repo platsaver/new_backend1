@@ -5,6 +5,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const multer = require('multer');
 const { fileTypeFromFile } = require('file-type');
+const nodemailer = require('nodemailer');
 
 const app = express();
 const port = 3000; // Cổng server
@@ -22,6 +23,21 @@ const pool = new Pool({
     password: '1234', // Thay bằng password của bạn
     database: 'newspaper_db' // Thay bằng tên database của bạn
 });
+// Nodemailer transporter
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+      user: 'kingdomofhellborn123@gmail.com',
+      pass: 'ehporfkkzfyxivao', // Use app-specific password for Gmail
+  },
+});
+// Temporary OTP storage (in-memory, replace with Redis in production)
+const otpStorage = {};
+
+// Generate 6-digit OTP
+const generateOTP = () => {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+};
 // Cấu hình Multer để upload ảnh
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -1034,6 +1050,113 @@ app.delete('/api/comments/:commentId', async (req, res) => {
           return res.status(404).json({ error: 'Comment not found' });
       }
       res.json({ message: 'Comment deleted successfully' });
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+//7) API liên quan đến quản lý users
+// Register API (Send OTP to email)
+app.post('/api/register', async (req, res) => {
+  const { userName, password, email } = req.body;
+
+  // Validate input
+  if (!userName || !password || !email) {
+      return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  try {
+      // Check if email already exists
+      const emailCheck = await pool.query('SELECT * FROM Users WHERE Email = $1', [email]);
+      if (emailCheck.rows.length > 0) {
+          return res.status(400).json({ error: 'Email already registered' });
+      }
+
+      // Generate and store OTP
+      const otp = generateOTP();
+      otpStorage[email] = { otp, expires: Date.now() + 10 * 60 * 1000 }; // OTP valid for 10 minutes
+
+      // Send OTP via email
+      const mailOptions = {
+          from: 'your_email@gmail.com',
+          to: email,
+          subject: 'Your OTP for Registration',
+          text: `Your OTP is ${otp}. It is valid for 10 minutes.`,
+      };
+
+      await transporter.sendMail(mailOptions);
+
+      res.status(200).json({ message: 'OTP sent to email. Please verify to complete registration.' });
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Verify OTP and complete registration
+app.post('/api/register/verify', async (req, res) => {
+  const { email, otp, userName, password } = req.body;
+
+  // Validate input
+  if (!email || !otp || !userName || !password) {
+      return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  try {
+      // Check OTP
+      const storedOtp = otpStorage[email];
+      if (!storedOtp || storedOtp.otp !== otp || Date.now() > storedOtp.expires) {
+          return res.status(400).json({ error: 'Invalid or expired OTP' });
+      }
+
+      // Insert user into database with plain text password
+      const result = await pool.query(
+          'INSERT INTO Users (UserName, Password, Email, Role) VALUES ($1, $2, $3, $4) RETURNING UserID, UserName, Email, Role, CreatedAtDate',
+          [userName, password, email, 'NguoiDung']
+      );
+
+      // Remove OTP from storage
+      delete otpStorage[email];
+
+      res.status(201).json({
+          message: 'User registered successfully',
+          user: result.rows[0],
+      });
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Login API (Compare credentials with database)
+app.post('/api/login', async (req, res) => {
+  const { email, password } = req.body;
+
+  // Validate input
+  if (!email || !password) {
+      return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  try {
+      // Check if user exists and password matches
+      const result = await pool.query('SELECT * FROM Users WHERE Email = $1 AND Password = $2', [email, password]);
+      if (result.rows.length === 0) {
+          return res.status(401).json({ error: 'Invalid email or password' });
+      }
+
+      const user = result.rows[0];
+
+      res.status(200).json({
+          message: 'Login successful',
+          user: {
+              userId: user.userid,
+              userName: user.username,
+              email: user.email,
+              role: user.role,
+              createdAtDate: user.createdatdate,
+          },
+      });
   } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Internal server error' });
