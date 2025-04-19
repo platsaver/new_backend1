@@ -6,6 +6,7 @@ const path = require('path');
 const multer = require('multer');
 const { fileTypeFromFile } = require('file-type');
 const nodemailer = require('nodemailer');
+const bcrypt = require('bcrypt');
 
 const app = express();
 const port = 3000; // Cổng server
@@ -1110,10 +1111,14 @@ app.post('/api/register/verify', async (req, res) => {
           return res.status(400).json({ error: 'Invalid or expired OTP' });
       }
 
-      // Insert user into database with plain text password
+      // Hash password
+      const saltRounds = 10;
+      const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+      // Insert user into database with hashed password
       const result = await pool.query(
           'INSERT INTO Users (UserName, Password, Email, Role) VALUES ($1, $2, $3, $4) RETURNING UserID, UserName, Email, Role, CreatedAtDate',
-          [userName, password, email, 'NguoiDung']
+          [userName, hashedPassword, email, 'NguoiDung']
       );
 
       // Remove OTP from storage
@@ -1139,13 +1144,19 @@ app.post('/api/login', async (req, res) => {
   }
 
   try {
-      // Check if user exists and password matches
-      const result = await pool.query('SELECT * FROM Users WHERE Email = $1 AND Password = $2', [email, password]);
+      // Check if user exists
+      const result = await pool.query('SELECT * FROM Users WHERE Email = $1', [email]);
       if (result.rows.length === 0) {
           return res.status(401).json({ error: 'Invalid email or password' });
       }
 
       const user = result.rows[0];
+
+      // Compare password
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) {
+          return res.status(401).json({ error: 'Invalid email or password' });
+      }
 
       res.status(200).json({
           message: 'Login successful',
