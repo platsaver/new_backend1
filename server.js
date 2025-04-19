@@ -972,6 +972,74 @@ app.get('/api/categories', async (req, res) => {
   }
 });
 
+//6) API liên quan tới quản lý các comment
+// Tạo comment
+app.post('/api/comments', async (req, res) => {
+  const { postId, userId, content } = req.body;
+  try {
+      const result = await pool.query(
+          'INSERT INTO Comments (PostID, UserID, Content) VALUES ($1, $2, $3) RETURNING *',
+          [postId, userId, content]
+      );
+      res.status(201).json(result.rows[0]);
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Đọc tất cả comment của một post
+app.get('/api/comments/:postId', async (req, res) => {
+  const { postId } = req.params;
+  try {
+      const result = await pool.query(
+          'SELECT * FROM Comments WHERE PostID = $1 ORDER BY CreatedAtDate DESC',
+          [postId]
+      );
+      res.json(result.rows);
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+//Cập nhật comment
+app.put('/api/comments/:commentId', async (req, res) => {
+  const { commentId } = req.params;
+  const { content } = req.body;
+  try {
+      const result = await pool.query(
+          'UPDATE Comments SET Content = $1, UpdatedAtDate = CURRENT_TIMESTAMP WHERE CommentID = $2 RETURNING *',
+          [content, commentId]
+      );
+      if (result.rows.length === 0) {
+          return res.status(404).json({ error: 'Comment not found' });
+      }
+      res.json(result.rows[0]);
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+//Xóa comment
+app.delete('/api/comments/:commentId', async (req, res) => {
+  const { commentId } = req.params;
+  try {
+      const result = await pool.query(
+          'DELETE FROM Comments WHERE CommentID = $1 RETURNING *',
+          [commentId]
+      );
+      if (result.rows.length === 0) {
+          return res.status(404).json({ error: 'Comment not found' });
+      }
+      res.json({ message: 'Comment deleted successfully' });
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Xử lý lỗi 404
 app.use((req, res) => {
     res.status(404).json({ error: 'Không tìm thấy endpoint' });
