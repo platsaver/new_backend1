@@ -483,6 +483,153 @@ app.get('/api/posts/search', async (req, res) => {
     });
   }
 });
+/**
+ * API để tìm các bài viết thuộc các tác giả nhất định
+ * GET /api/posts/authors?userIds=1,2,3&page=1&limit=10
+ */
+app.get('/api/posts/authors', async (req, res) => {
+  try {
+    const { userIds, page = 1, limit = 10 } = req.query;
+    
+    // Kiểm tra userIds
+    if (!userIds) {
+      return res.status(400).json({ error: 'userIds is required' });
+    }
+    
+    // Chuyển userIds thành mảng và kiểm tra hợp lệ
+    const userIdArray = userIds.split(',')
+      .map(id => {
+        const parsedId = parseInt(id.trim());
+        return parsedId;
+      })
+      .filter(id => !isNaN(id));
+      
+    if (userIdArray.length === 0) {
+      return res.status(400).json({ error: 'Invalid userIds' });
+    }
+    
+    // Tính toán phân trang
+    const parsedPage = parseInt(page);
+    const parsedLimit = parseInt(limit);
+    const offset = (parsedPage - 1) * parsedLimit;
+    
+    const queryText = `
+      SELECT p.*, u.Username 
+      FROM Posts p
+      JOIN Users u ON p.UserID = u.UserID
+      WHERE p.UserID = ANY($1::int[])
+      ORDER BY p.CreatedAtDate DESC
+      LIMIT $2 OFFSET $3
+    `;
+    
+    const countQuery = `
+      SELECT COUNT(*) 
+      FROM Posts
+      WHERE UserID = ANY($1::int[])
+    `;
+    
+    // Thực hiện truy vấn
+    const [postsResult, countResult] = await Promise.all([
+      pool.query(queryText, [userIdArray, parsedLimit, offset]),
+      pool.query(countQuery, [userIdArray]),
+    ]);
+    
+    const totalPosts = parseInt(countResult.rows[0].count);
+    
+    if (postsResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No posts found' });
+    }
+    
+    res.status(200).json({
+      status: 'success',
+      data: {
+        posts: postsResult.rows,
+        pagination: {
+          currentPage: parsedPage,
+          totalPages: Math.ceil(totalPosts / parsedLimit),
+          totalPosts,
+          limit: parsedLimit,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching posts by authors:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * API để tìm các bài viết thuộc trạng thái bất kỳ
+ * GET /api/posts/status?statuses=Draft,Published,Archieve&page=1&limit=10
+ */
+app.get('/api/posts/status', async (req, res) => {
+  try {
+    const { statuses, page = 1, limit = 10 } = req.query;
+    
+    // Kiểm tra statuses
+    if (!statuses) {
+      return res.status(400).json({ error: 'statuses is required' });
+    }
+    
+    // Chuyển statuses thành mảng và kiểm tra hợp lệ
+    const validStatuses = ['Draft', 'Published', 'Archieve'];
+    const statusArray = statuses.split(',')
+      .map(s => s.trim())
+      .filter(s => validStatuses.includes(s));
+      
+    if (statusArray.length === 0) {
+      return res.status(400).json({ error: 'Invalid statuses' });
+    }
+    
+    // Tính toán phân trang
+    const parsedPage = parseInt(page);
+    const parsedLimit = parseInt(limit);
+    const offset = (parsedPage - 1) * parsedLimit;
+    
+    const queryText = `
+      SELECT p.*, u.Username
+      FROM Posts p
+      JOIN Users u ON p.UserID = u.UserID
+      WHERE p.Status = ANY($1::text[])
+      ORDER BY p.CreatedAtDate DESC
+      LIMIT $2 OFFSET $3
+    `;
+    
+    const countQuery = `
+      SELECT COUNT(*) 
+      FROM Posts
+      WHERE Status = ANY($1::text[])
+    `;
+    
+    // Thực hiện truy vấn
+    const [postsResult, countResult] = await Promise.all([
+      pool.query(queryText, [statusArray, parsedLimit, offset]),
+      pool.query(countQuery, [statusArray]),
+    ]);
+    
+    const totalPosts = parseInt(countResult.rows[0].count);
+    
+    if (postsResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No posts found' });
+    }
+    
+    res.status(200).json({
+      status: 'success',
+      data: {
+        posts: postsResult.rows,
+        pagination: {
+          currentPage: parsedPage,
+          totalPages: Math.ceil(totalPosts / parsedLimit),
+          totalPosts,
+          limit: parsedLimit,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching posts by status:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 //2) API liên quan đến users
 //3) API liên quan đến quản lý tag
@@ -1172,6 +1319,114 @@ app.post('/api/login', async (req, res) => {
       console.error(error);
       res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+// Liệt kê thông tin tất cả người dùng trong hệ thống
+app.get('/api/users', async (req, res) => {
+  try {
+      const result = await pool.query('SELECT UserID, UserName, Role, Email, CreatedAtDate, UpdatedAtDate FROM Users');
+      res.json({
+          success: true,
+          data: result.rows
+      });
+  } catch (error) {
+      console.error('Error fetching users:', error);
+      res.status(500).json({
+          success: false,
+          message: 'Internal server error'
+      });
+  }
+});
+// Lấy thông tin người dùng hiện tại
+app.get('/api/users/:id', async (req, res) => {
+  const userId = parseInt(req.params.id);
+  
+  if (isNaN(userId)) {
+      return res.status(400).json({
+          success: false,
+          message: 'Invalid user ID'
+      });
+  }
+
+  try {
+      const result = await pool.query(
+          'SELECT UserID, UserName, Role, Email, CreatedAtDate, UpdatedAtDate FROM Users WHERE UserID = $1',
+          [userId]
+      );
+
+      if (result.rows.length === 0) {
+          return res.status(404).json({
+              success: false,
+              message: 'User not found'
+          });
+      }
+
+      res.json({
+          success: true,
+          data: result.rows[0]
+      });
+  } catch (error) {
+      console.error('Error fetching user:', error);
+      res.status(500).json({
+          success: false,
+          message: 'Internal server error'
+      });
+  }
+});
+
+// Thay đổi role của người dùng
+app.put('/api/users/:id/role', async (req, res) => {
+    const userId = parseInt(req.params.id);
+    const { role } = req.body;
+
+    // Xác thực đầu vào
+    if (isNaN(userId)) {
+        return res.status(400).json({
+            success: false,
+            message: 'Invalid user ID'
+        });
+    }
+
+    const validRoles = ['Author', 'Admin', 'NguoiDung'];
+    if (!role || !validRoles.includes(role)) {
+        return res.status(400).json({
+            success: false,
+            message: `Invalid role. Must be one of: ${validRoles.join(', ')}`
+        });
+    }
+
+    try {
+        // Kiểm tra xem người dùng có tồn tại không
+        const userCheck = await pool.query(
+            'SELECT UserID FROM Users WHERE UserID = $1',
+            [userId]
+        );
+
+        if (userCheck.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // Cập nhật role
+        const result = await pool.query(
+            'UPDATE Users SET Role = $1 WHERE UserID = $2 RETURNING UserID, UserName, Role, Email, CreatedAtDate, UpdatedAtDate',
+            [role, userId]
+        );
+
+        res.json({
+            success: true,
+            message: `User role updated to ${role}`,
+            data: result.rows[0]
+        });
+    } catch (error) {
+        console.error('Error updating user role:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error'
+        });
+    }
 });
 
 // Xử lý lỗi 404

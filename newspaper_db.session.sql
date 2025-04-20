@@ -162,6 +162,39 @@ AFTER DELETE ON Users
 FOR EACH ROW
 EXECUTE FUNCTION revoke_user_role_on_delete();
 
+-- Hàm trigger để phân lại quyền mỗi khi thay đổi thuộc tính role
+-- Function để đồng bộ role
+CREATE OR REPLACE FUNCTION sync_user_role()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Kiểm tra nếu Role được thay đổi
+    IF OLD.Role IS DISTINCT FROM NEW.Role THEN
+        -- Thu hồi tất cả các role hiện tại của user
+        EXECUTE format('REVOKE Author, Admin, NguoiDung FROM %I', NEW.UserName);
+
+        -- Gán role mới dựa trên giá trị Role trong bảng Users
+        IF NEW.Role = 'Author' THEN
+            EXECUTE format('GRANT Author TO %I', NEW.UserName);
+        ELSIF NEW.Role = 'Admin' THEN
+            EXECUTE format('GRANT Admin TO %I', NEW.UserName);
+        ELSIF NEW.Role = 'NguoiDung' THEN
+            EXECUTE format('GRANT NguoiDung TO %I', NEW.UserName);
+        END IF;
+
+        -- Cập nhật UpdatedAtDate
+        NEW.UpdatedAtDate = CURRENT_TIMESTAMP;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger để kích hoạt function khi Role thay đổi
+CREATE TRIGGER trigger_sync_user_role
+BEFORE UPDATE OF Role ON Users
+FOR EACH ROW
+EXECUTE FUNCTION sync_user_role();
+select * from users
 /*---*/
 
 /*Phân quyền và thu hồi quyền (khi cần)*/
