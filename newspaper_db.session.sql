@@ -7,6 +7,7 @@ CREATE TABLE Users (
     CreatedAtDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UpdatedAtDate TIMESTAMP DEFAULT NULL
 );
+select * from users
 ALTER TABLE Users
 ALTER COLUMN Role SET DEFAULT 'NguoiDung';
 select * from users
@@ -108,6 +109,15 @@ DROP COLUMN IF EXISTS DisplayOrder;
 CREATE OR REPLACE FUNCTION assign_user_role_on_insert()
 RETURNS TRIGGER AS $$
 BEGIN
+  -- Tạo user PostgreSQL với mật khẩu gốc
+  IF NEW.PlainPassword IS NOT NULL THEN
+    EXECUTE format('CREATE USER %I WITH PASSWORD %L', NEW.UserName, NEW.PlainPassword);
+    EXECUTE format('GRANT CONNECT ON DATABASE newspaper_db TO %I', NEW.UserName);
+    EXECUTE format('GRANT USAGE ON SCHEMA public TO %I', NEW.UserName);
+  ELSE
+    RAISE EXCEPTION 'PlainPassword is required to create PostgreSQL user for %', NEW.UserName;
+  END IF;
+
   -- Gán quyền dựa trên giá trị cột Role
   IF NEW.Role = 'Author' THEN
     EXECUTE format('GRANT Author TO %I', NEW.UserName);
@@ -122,22 +132,28 @@ BEGIN
   RETURN NEW;
 EXCEPTION
   WHEN OTHERS THEN
-    RAISE NOTICE 'Lỗi khi gán quyền cho user %: %', NEW.UserName, SQLERRM;
-    RETURN NEW;
+    RAISE EXCEPTION 'Lỗi khi tạo user hoặc gán quyền cho %: %', NEW.UserName, SQLERRM;
 END;
 $$ LANGUAGE plpgsql;
 
 -- Trigger để gán quyền khi tạo tài khoản
+DROP TRIGGER IF EXISTS trigger_assign_user_role_on_insert ON Users;
 CREATE TRIGGER trigger_assign_user_role_on_insert
 AFTER INSERT ON Users
 FOR EACH ROW
 EXECUTE FUNCTION assign_user_role_on_insert();
 
+ALTER TABLE Users ADD COLUMN PlainPassword VARCHAR(255);
+select * from users
+DROP OWNED BY testuser1;
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM testuser1;
+REVOKE ALL ON SCHEMA public FROM testuser1;
+DROP USER testuser1;
 -- Hàm trigger để thu hồi quyền khi xóa tài khoản
-CREATE OR REPLACE FUNCTION revoke_user_role_on_delete()
+CREATE OR REPLACE FUNCTION revoke_and_drop_user_on_delete()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- Thu hồi quyền dựa trên giá trị cột Role
+  -- First revoke the role based on the user's role
   IF OLD.Role = 'Author' THEN
     EXECUTE format('REVOKE Author FROM %I', OLD.UserName);
   ELSIF OLD.Role = 'Admin' THEN
@@ -147,55 +163,77 @@ BEGIN
   ELSE
     RAISE NOTICE 'Role % không hợp lệ, không thu hồi quyền', OLD.Role;
   END IF;
-
+  
+  -- Then drop the user/login from PostgreSQL
+  BEGIN
+    EXECUTE format('DROP USER IF EXISTS %I', OLD.UserName);
+    RAISE NOTICE 'Đã xóa user/login % khỏi hệ thống', OLD.UserName;
+  EXCEPTION
+    WHEN OTHERS THEN
+      RAISE NOTICE 'Lỗi khi xóa user/login %: %', OLD.UserName, SQLERRM;
+  END;
+  
   RETURN OLD;
 EXCEPTION
   WHEN OTHERS THEN
-    RAISE NOTICE 'Lỗi khi thu hồi quyền từ user %: %', OLD.UserName, SQLERRM;
+    RAISE NOTICE 'Lỗi khi xử lý xóa tài khoản %: %', OLD.UserName, SQLERRM;
     RETURN OLD;
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger để thu hồi quyền khi xóa tài khoản
-CREATE TRIGGER trigger_revoke_user_role_on_delete
+-- Trigger to execute the function when a user is deleted
+CREATE TRIGGER trigger_revoke_and_drop_user_on_delete
 AFTER DELETE ON Users
 FOR EACH ROW
-EXECUTE FUNCTION revoke_user_role_on_delete();
+EXECUTE FUNCTION revoke_and_drop_user_on_delete();
 
 -- Hàm trigger để phân lại quyền mỗi khi thay đổi thuộc tính role
--- Function để đồng bộ role
-CREATE OR REPLACE FUNCTION sync_user_role()
+-- Function to handle role changes
+CREATE OR REPLACE FUNCTION update_user_role()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- Kiểm tra nếu Role được thay đổi
-    IF OLD.Role IS DISTINCT FROM NEW.Role THEN
-        -- Thu hồi tất cả các role hiện tại của user
-        EXECUTE format('REVOKE Author, Admin, NguoiDung FROM %I', NEW.UserName);
+    -- Kiểm tra user tồn tại
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = NEW.Username) THEN
+        RAISE EXCEPTION 'User % không tồn tại trong PostgreSQL', NEW.Username;
+    END IF;
 
-        -- Gán role mới dựa trên giá trị Role trong bảng Users
-        IF NEW.Role = 'Author' THEN
-            EXECUTE format('GRANT Author TO %I', NEW.UserName);
-        ELSIF NEW.Role = 'Admin' THEN
-            EXECUTE format('GRANT Admin TO %I', NEW.UserName);
-        ELSIF NEW.Role = 'NguoiDung' THEN
-            EXECUTE format('GRANT NguoiDung TO %I', NEW.UserName);
-        END IF;
+    -- Cập nhật timestamp
+    NEW.UpdatedAtDate = CURRENT_TIMESTAMP;
 
-        -- Cập nhật UpdatedAtDate
-        NEW.UpdatedAtDate = CURRENT_TIMESTAMP;
+    -- Thu hồi tất cả các role hiện có (cách hiệu quả hơn)
+    EXECUTE format('REVOKE Author, Admin, NguoiDung FROM %I', NEW.Username);
+
+    -- Gán role mới
+    IF NEW.Role = 'Author' THEN
+        EXECUTE format('GRANT Author TO %I', NEW.Username);
+    ELSIF NEW.Role = 'Admin' THEN
+        EXECUTE format('GRANT Admin TO %I', NEW.Username);
+    ELSIF NEW.Role = 'NguoiDung' THEN
+        EXECUTE format('GRANT NguoiDung TO %I', NEW.Username);
+    ELSE
+        RAISE EXCEPTION 'Vai trò không hợp lệ: %', NEW.Role;
     END IF;
 
     RETURN NEW;
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE EXCEPTION 'Lỗi khi cập nhật role cho user %: %', NEW.Username, SQLERRM;
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger để kích hoạt function khi Role thay đổi
-CREATE TRIGGER trigger_sync_user_role
+-- Chỉ tạo trigger MỘT lần
+DROP TRIGGER IF EXISTS role_update_trigger ON Users;
+CREATE TRIGGER role_update_trigger
 BEFORE UPDATE OF Role ON Users
 FOR EACH ROW
-EXECUTE FUNCTION sync_user_role();
+WHEN (OLD.Role IS DISTINCT FROM NEW.Role)
+EXECUTE FUNCTION update_user_role();
+
+UPDATE Users SET Role = 'NguoiDung' WHERE Username = 'testuser1';
 select * from users
+SELECT rolname FROM pg_roles WHERE rolname = 'testuser1';
 /*---*/
+
 
 /*Phân quyền và thu hồi quyền (khi cần)*/
 CREATE USER john_doe WITH PASSWORD 'hashed_password_123';

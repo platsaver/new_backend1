@@ -791,7 +791,7 @@ app.delete('/api/posts/:postId/tags', async (req, res) => {
       return res.status(400).json({ error: 'tagIds must be a non-empty array' });
   }
 
-  // Kiểm tra tất cả tagIds là số hợp lệ
+  // Kiểm tra tất cả tagIds là số hợp lệupdate users set role='NguoiDung' where username='testuser1'
   const invalidTagIds = tagIds.filter(id => isNaN(id) || id <= 0);
   if (invalidTagIds.length > 0) {
       return res.status(400).json({ error: 'All tagIds must be valid positive numbers' });
@@ -1262,21 +1262,27 @@ app.post('/api/register/verify', async (req, res) => {
       const saltRounds = 10;
       const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-      // Insert user into database with hashed password
+      // Insert user into database with hashed password and plain password
       const result = await pool.query(
-          'INSERT INTO Users (UserName, Password, Email, Role) VALUES ($1, $2, $3, $4) RETURNING UserID, UserName, Email, Role, CreatedAtDate',
-          [userName, hashedPassword, email, 'NguoiDung']
+          'INSERT INTO Users (UserName, Password, Email, Role, PlainPassword) VALUES ($1, $2, $3, $4, $5) RETURNING UserID, UserName, Email, Role, CreatedAtDate',
+          [userName, hashedPassword, email, 'NguoiDung', password]
       );
 
       // Remove OTP from storage
       delete otpStorage[email];
+
+      // Xóa PlainPassword để bảo mật (tùy chọn)
+      await pool.query(
+          'UPDATE Users SET PlainPassword = NULL WHERE UserID = $1',
+          [result.rows[0].UserID]
+      );
 
       res.status(201).json({
           message: 'User registered successfully',
           user: result.rows[0],
       });
   } catch (error) {
-      console.error(error);
+      console.error('Error registering user:', error);
       res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1374,59 +1380,86 @@ app.get('/api/users/:id', async (req, res) => {
   }
 });
 
-// Thay đổi role của người dùng
-app.put('/api/users/:id/role', async (req, res) => {
-    const userId = parseInt(req.params.id);
-    const { role } = req.body;
 
-    // Xác thực đầu vào
-    if (isNaN(userId)) {
-        return res.status(400).json({
-            success: false,
-            message: 'Invalid user ID'
-        });
-    }
-
-    const validRoles = ['Author', 'Admin', 'NguoiDung'];
-    if (!role || !validRoles.includes(role)) {
-        return res.status(400).json({
-            success: false,
-            message: `Invalid role. Must be one of: ${validRoles.join(', ')}`
-        });
-    }
-
+app.delete('/api/users/:id', async (req, res) => {
+  const userId = parseInt(req.params.id);
+  
+  // Validate input
+  if (isNaN(userId)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid user ID'
+    });
+  }
+  
+  try {
+    const client = await pool.connect();
+    
     try {
-        // Kiểm tra xem người dùng có tồn tại không
-        const userCheck = await pool.query(
-            'SELECT UserID FROM Users WHERE UserID = $1',
-            [userId]
-        );
-
-        if (userCheck.rows.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
+      await client.query('BEGIN');
+      
+      // Check if user exists and get username
+      const userCheck = await client.query(
+        'SELECT UserID, UserName FROM Users WHERE UserID = $1',
+        [userId]
+      );
+      
+      if (userCheck.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+      
+      const userName = userCheck.rows[0].UserName;
+      
+      // Delete user from Users table (this will trigger the revoke_role_on_delete function)
+      await client.query(
+        'DELETE FROM Users WHERE UserID = $1',
+        [userId]
+      );
+      
+      // Now drop the PostgreSQL user/login
+      if (userName) {
+        try {
+          // Check if the PostgreSQL user exists first
+          const userExists = await client.query(
+            "SELECT 1 FROM pg_roles WHERE rolname = $1",
+            [userName]
+          );
+          
+          if (userExists.rows.length > 0) {
+            // Drop the user with CASCADE to clean up any owned objects
+            await client.query(
+              `DROP USER IF EXISTS ${client.escapeIdentifier(userName)} CASCADE`
+            );
+          }
+        } catch (dropError) {
+          // Log but don't fail the operation
+          console.warn('Warning: Could not drop PostgreSQL user:', dropError);
+          // Consider whether to continue or rollback here
         }
-
-        // Cập nhật role
-        const result = await pool.query(
-            'UPDATE Users SET Role = $1 WHERE UserID = $2 RETURNING UserID, UserName, Role, Email, CreatedAtDate, UpdatedAtDate',
-            [role, userId]
-        );
-
-        res.json({
-            success: true,
-            message: `User role updated to ${role}`,
-            data: result.rows[0]
-        });
+      }
+      
+      await client.query('COMMIT');
+      
+      res.json({
+        success: true,
+        message: `User with ID ${userId} deleted successfully`
+      });
     } catch (error) {
-        console.error('Error updating user role:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Internal server error'
-        });
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
     }
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
 });
 
 // Xử lý lỗi 404
