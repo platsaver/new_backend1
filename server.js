@@ -7,6 +7,8 @@ const multer = require('multer');
 const { fileTypeFromFile } = require('file-type');
 const nodemailer = require('nodemailer');
 const bcrypt = require('bcrypt');
+const marked = require('marked');
+const matter = require('gray-matter');
 
 const app = express();
 const port = 3000; // Cổng server
@@ -631,7 +633,69 @@ app.get('/api/posts/status', async (req, res) => {
   }
 });
 
-//2) API liên quan đến users
+//2) API liên quan đến markdown
+// API endpoint để lấy chi tiết bài viết
+app.get('/api/article/:slug', async (req, res) => {
+    try {
+        const slug = req.params.slug;
+        console.log('Yêu cầu slug:', slug);
+
+        // Truy vấn metadata từ bảng Posts
+        const postResult = await pool.query(`
+            SELECT p.postid, p.title, p.createdatdate AS timestamp, p.status, p.slug,
+                   u.username AS author,
+                   c.categoryname AS category,
+                   sc.subcategoryname AS subcategory
+            FROM Posts p
+            LEFT JOIN Users u ON p.userid = u.userid
+            LEFT JOIN Categories c ON p.categoryid = c.categoryid
+            LEFT JOIN SubCategories sc ON p.subcategoryid = sc.subcategoryid
+            WHERE p.slug = $1 AND p.status = 'Published'
+        `, [slug]);
+
+        if (postResult.rows.length === 0) {
+            console.log('Không tìm thấy bài viết với slug:', slug);
+            return res.status(404).json({ error: 'Bài viết không tồn tại' });
+        }
+
+        const post = postResult.rows[0];
+        console.log('Metadata bài viết:', post);
+
+        // Đọc file Markdown
+        const filePath = path.join(__dirname, 'posts', `${slug}.md`);
+        console.log('Đường dẫn file:', filePath);
+        let htmlContent;
+        try {
+            const fileContent = await fs.readFile(filePath, 'utf-8');
+            console.log('Nội dung file (100 ký tự đầu):', fileContent.substring(0, 100));
+            const { content } = matter(fileContent);
+            htmlContent = marked.parse(content); // Sử dụng marked.parse cho phiên bản mới
+        } catch (err) {
+            console.error('Lỗi đọc file:', err.message);
+            htmlContent = 'Nội dung không khả dụng';
+        }
+
+        // Tạo đối tượng trả về
+        const article = {
+            metadata: {
+                postId: post.postid,
+                title: post.title,
+                author: post.author,
+                categories: [post.category, post.subcategory].filter(Boolean),
+                timestamp: post.timestamp.toLocaleString('vi-VN'),
+                status: post.status,
+                slug: post.slug
+            },
+            body: htmlContent
+        };
+
+        // Trả về JSON
+        res.json(article);
+    } catch (err) {
+        console.error('Lỗi server:', err.message);
+        res.status(500).json({ error: 'Lỗi server' });
+    }
+});
 //3) API liên quan đến quản lý tag
 // Tạo một tag mới
 app.post('/api/tags', async (req, res) => {

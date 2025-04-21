@@ -43,6 +43,9 @@ CREATE TABLE Posts (
     FOREIGN KEY (CategoryID) REFERENCES Categories(CategoryID) ON DELETE SET NULL,
     FOREIGN KEY (SubCategoryID) REFERENCES SubCategories(SubCategoryID) ON DELETE SET NULL
 );
+ALTER TABLE Posts ADD COLUMN IF NOT EXISTS slug VARCHAR(255) UNIQUE;
+update Posts set slug='article1' where postid='1'
+select * from posts
 ALTER TABLE Posts
 ADD Featured BOOLEAN DEFAULT FALSE;
 CREATE TABLE Comments (
