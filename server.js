@@ -1216,18 +1216,103 @@ app.post('/api/comments', async (req, res) => {
   }
 });
 
+// API endpoint để duyệt comments
+app.put('/api/comments/:commentId/moderate', async (req, res) => {
+  const { commentId } = req.params;
+  const { status, moderatorId, moderationNote } = req.body;
+  try {
+    
+    // Cập nhật trạng thái comment
+    const result = await pool.query(
+      `UPDATE Comments 
+       SET Status = $1, 
+           ModeratorID = $2, 
+           ModerationNote = $3,
+           UpdatedAtDate = CURRENT_TIMESTAMP
+       WHERE CommentID = $4
+       RETURNING *`,
+      [status, moderatorId, moderationNote, commentId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Không tìm thấy bình luận' });
+    }
+    
+    res.status(200).json(result.rows[0]);
+  } catch (error) {
+    console.error('Lỗi khi duyệt bình luận:', error);
+    res.status(500).json({ error: 'Lỗi máy chủ nội bộ' });
+  }
+});
+
+// API endpoint để lấy lịch sử duyệt comments
+app.get('/api/comments/moderation-history', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT c.*, u.UserName as Author, m.UserName as Moderator, p.Title as PostTitle
+       FROM Comments c
+       JOIN Users u ON c.UserID = u.UserID
+       JOIN Users m ON c.ModeratorID = m.UserID
+       JOIN Posts p ON c.PostID = p.PostID
+       WHERE c.Status IS NOT NULL
+       ORDER BY c.UpdatedAtDate DESC`
+    );
+    
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error('Lỗi khi lấy lịch sử duyệt bình luận:', error);
+    res.status(500).json({ error: 'Lỗi máy chủ nội bộ' });
+  }
+});
+
+// Lấy tất cả các comment đang pending
+app.get('/api/comments/pending', async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        c.CommentID,
+        c.PostID,
+        c.UserID,
+        c.Content,
+        c.CreatedAtDate,
+        c.UpdatedAtDate,
+        c.Status,
+        c.ModeratorID,
+        c.ModerationNote,
+        u.Username
+      FROM Comments c
+      JOIN Users u ON c.UserID = u.UserID
+      WHERE c.Status = $1
+      ORDER BY c.CreatedAtDate DESC;
+    `;
+    const result = await pool.query(query, ['pending']);
+    
+    res.status(200).json({
+      status: 'success',
+      data: result.rows,
+      count: result.rowCount,
+    });
+  } catch (error) {
+    console.error('Error fetching pending comments:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error',
+    });
+  }
+});
+
 // Đọc tất cả comment của một post
 app.get('/api/comments/:postId', async (req, res) => {
   const { postId } = req.params;
   try {
-      const result = await pool.query(
-          'SELECT * FROM Comments WHERE PostID = $1 ORDER BY CreatedAtDate DESC',
-          [postId]
-      );
-      res.json(result.rows);
+    const result = await pool.query(
+      'SELECT * FROM Comments WHERE PostID = $1 AND Status = $2 ORDER BY CreatedAtDate DESC',
+      [postId, 'approved']
+    );
+    res.json(result.rows);
   } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Internal server error' });
+    console.error('Error fetching approved comments:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -1236,17 +1321,17 @@ app.put('/api/comments/:commentId', async (req, res) => {
   const { commentId } = req.params;
   const { content } = req.body;
   try {
-      const result = await pool.query(
-          'UPDATE Comments SET Content = $1, UpdatedAtDate = CURRENT_TIMESTAMP WHERE CommentID = $2 RETURNING *',
-          [content, commentId]
-      );
-      if (result.rows.length === 0) {
-          return res.status(404).json({ error: 'Comment not found' });
-      }
-      res.json(result.rows[0]);
+    const result = await pool.query(
+      'UPDATE Comments SET Content = $1, UpdatedAtDate = CURRENT_TIMESTAMP WHERE CommentID = $2 AND Status = $3 RETURNING *',
+      [content, commentId, 'approved']
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Comment not found or not approved' });
+    }
+    res.json(result.rows[0]);
   } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Internal server error' });
+    console.error('Error updating comment:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

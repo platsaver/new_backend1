@@ -58,6 +58,18 @@ CREATE TABLE Comments (
     FOREIGN KEY (PostID) REFERENCES Posts(PostID) ON DELETE CASCADE,
     FOREIGN KEY (UserID) REFERENCES Users(UserID) ON DELETE CASCADE
 );
+ALTER TABLE Comments ADD COLUMN IF NOT EXISTS Status VARCHAR(20) DEFAULT 'pending';
+ALTER TABLE Comments ADD COLUMN IF NOT EXISTS ModeratorID INT REFERENCES Users(UserID);
+ALTER TABLE Comments ADD COLUMN IF NOT EXISTS ModerationNote TEXT;
+SELECT column_name, data_type, character_maximum_length
+FROM information_schema.columns
+WHERE table_name = 'comments' AND column_name = 'status';
+SELECT c.*, u.UserName, p.Title as PostTitle
+FROM Comments c
+LEFT JOIN Users u ON c.UserID = u.UserID
+LEFT JOIN Posts p ON c.PostID = p.PostID
+WHERE (LOWER(c.Status) = 'pending' OR c.Status IS NULL)
+ORDER BY c.CreatedAtDate DESC;
 CREATE TABLE PostTags (
     PostID INT NOT NULL,
     TagID INT NOT NULL,
@@ -223,7 +235,7 @@ EXCEPTION
         RAISE EXCEPTION 'Lỗi khi cập nhật role cho user %: %', NEW.Username, SQLERRM;
 END;
 $$ LANGUAGE plpgsql;
-
+select * from users
 -- Chỉ tạo trigger MỘT lần
 DROP TRIGGER IF EXISTS role_update_trigger ON Users;
 CREATE TRIGGER role_update_trigger
