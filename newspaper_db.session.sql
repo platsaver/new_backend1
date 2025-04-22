@@ -9,9 +9,9 @@ CREATE TABLE Users (
 );
 ALTER TABLE Users ADD COLUMN PlainPassword VARCHAR(255);
 ALTER TABLE Users
-
-select * from sessions
 ALTER COLUMN Role SET DEFAULT 'nguoidung';
+ALTER TABLE Users ADD COLUMN AvatarURL VARCHAR(255) DEFAULT NULL;
+select * from users
 -- Specificially created for logout
 CREATE TABLE IF NOT EXISTS session (
     sid VARCHAR NOT NULL COLLATE "default",

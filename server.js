@@ -152,6 +152,19 @@ app.use(
   })
 );
 
+// Handling categories
+const validateCategory = (req, res, next) => {
+  const { CategoryName } = req.body;
+  if (!CategoryName || typeof CategoryName !== 'string' || CategoryName.trim().length === 0) {
+    return res.status(400).json({ error: 'CategoryName is required and must be a non-empty string' });
+  }
+  if (CategoryName.length > 255) {
+    return res.status(400).json({ error: 'CategoryName must not exceed 255 characters' });
+  }
+  req.body.CategoryName = CategoryName.trim();
+  next();
+};
+
 // Middleware to check if user is authenticated
 const isAuthenticated = (req, res, next) => {
   if (req.session.userId) {
@@ -1182,7 +1195,7 @@ app.delete('/api/media/:mediaId', async (req, res) => {
   }
 });
 
-// 5) API liên quan đến quản lý banner các subcategories
+// 5) API liên quan đến các subcategories và categories
 // API: Cập nhật banner cho Category
 app.post('/api/categories/:categoryId/banner', upload.single('banner'), handleMulterError, async (req, res) => {
   const { categoryId } = req.params;
@@ -1323,6 +1336,87 @@ app.get('/api/categories', async (req, res) => {
   } catch (error) {
       console.error(error);
       res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Thêm một categories mới
+app.post('/api/categories', validateCategory, async (req, res) => {
+  const { CategoryName } = req.body;
+  try {
+    const result = await pool.query(
+      'INSERT INTO Categories (CategoryName) VALUES ($1) RETURNING CategoryID, CategoryName',
+      [CategoryName]
+    );
+    res.status(201).json({
+      message: 'Category created successfully',
+      category: result.rows[0],
+    });
+  } catch (err) {
+    if (err.code === '23505') { // Unique constraint violation
+      return res.status(400).json({ error: 'CategoryName already exists' });
+    }
+    console.error('Error creating category:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Sửa một categories theo id
+app.put('/api/categories/:id', validateCategory, async (req, res) => {
+  const { CategoryName } = req.body;
+  const categoryId = parseInt(req.params.id, 10);
+
+  if (isNaN(categoryId)) {
+    return res.status(400).json({ error: 'Invalid CategoryID' });
+  }
+
+  try {
+    const result = await pool.query(
+      'UPDATE Categories SET CategoryName = $1 WHERE CategoryID = $2 RETURNING CategoryID, CategoryName',
+      [CategoryName, categoryId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    res.json({
+      message: 'Category updated successfully',
+      category: result.rows[0],
+    });
+  } catch (err) {
+    if (err.code === '23505') { // Unique constraint violation
+      return res.status(400).json({ error: 'CategoryName already exists' });
+    }
+    console.error('Error updating category:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Xóa categories
+app.delete('/api/categories/:id', async (req, res) => {
+  const categoryId = parseInt(req.params.id, 10);
+
+  if (isNaN(categoryId)) {
+    return res.status(400).json({ error: 'Invalid CategoryID' });
+  }
+
+  try {
+    const result = await pool.query(
+      'DELETE FROM Categories WHERE CategoryID = $1 RETURNING CategoryID, CategoryName',
+      [categoryId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    res.json({
+      message: 'Category deleted successfully',
+      category: result.rows[0],
+    });
+  } catch (err) {
+    console.error('Error deleting category:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -1648,7 +1742,7 @@ app.get('/api/users/:id', async (req, res) => {
 
   try {
       const result = await pool.query(
-          'SELECT UserID, UserName, Role, Email, CreatedAtDate, UpdatedAtDate FROM Users WHERE UserID = $1',
+          'SELECT UserID, UserName, Role, Email, CreatedAtDate, UpdatedAtDate, AvatarURL FROM Users WHERE UserID = $1',
           [userId]
       );
 
@@ -1754,6 +1848,35 @@ app.patch('/users/:userId', async (req, res) => {
   } catch (error) {
       console.error('Error updating user:', error);
       res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// API upload avatar
+app.post('/api/upload-avatar/:userId', upload.single('avatar'), async (req, res) => {
+  try {
+      const { userId } = req.params;
+      const avatarUrl = `/uploads/${req.file.filename}`;
+
+      const updateQuery = `
+          UPDATE Users 
+          SET AvatarURL = $1, UpdatedAtDate = CURRENT_TIMESTAMP
+          WHERE UserID = $2
+          RETURNING AvatarURL
+      `;
+      
+      const result = await pool.query(updateQuery, [avatarUrl, userId]);
+      
+      if (result.rows.length === 0) {
+          return res.status(404).json({ error: 'User not found' });
+      }
+
+      res.json({
+          message: 'Avatar uploaded successfully',
+          avatarUrl: result.rows[0].AvatarURL
+      });
+  } catch (error) {
+      console.error('Error uploading avatar:', error);
+      res.status(500).json({ error: 'Failed to upload avatar' });
   }
 });
 
