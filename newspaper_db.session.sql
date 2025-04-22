@@ -11,7 +11,8 @@ ALTER TABLE Users ADD COLUMN PlainPassword VARCHAR(255);
 ALTER TABLE Users
 ALTER COLUMN Role SET DEFAULT 'nguoidung';
 ALTER TABLE Users ADD COLUMN AvatarURL VARCHAR(255) DEFAULT NULL;
-select * from users
+
+
 -- Specificially created for logout
 CREATE TABLE IF NOT EXISTS session (
     sid VARCHAR NOT NULL COLLATE "default",
@@ -21,7 +22,6 @@ CREATE TABLE IF NOT EXISTS session (
 );
 select * from session
 
-select * from users
 CREATE TABLE Categories (
     CategoryID SERIAL PRIMARY KEY,
     CategoryName VARCHAR(255) NOT NULL,
@@ -491,13 +491,11 @@ ALTER SEQUENCE Comments_CommentID_seq RESTART WITH 1;
 
 -- Reset sequence cho bảng Tags
 ALTER SEQUENCE Tags_TagID_seq RESTART WITH 1;
-
 -- Reset sequence cho bảng Media
 ALTER SEQUENCE Media_MediaID_seq RESTART WITH 1;
 delete from categories;
 delete from subcategories;
 delete from tags;
-delete from posts;
 delete from comments;
 delete from posttags;
 delete from users;
@@ -508,7 +506,7 @@ INSERT INTO Categories (CategoryName) VALUES
 ('Kinh doanh'),
 ('Bất động sản'),
 ('Pháp luật');
-select * from categories
+
 INSERT INTO SubCategories (CategoryID, SubCategoryName) VALUES
 ((SELECT CategoryID FROM Categories WHERE CategoryName = 'Thời Sự'), 'Trong nước'),
 ((SELECT CategoryID FROM Categories WHERE CategoryName = 'Thời Sự'), 'Quốc tế'),
@@ -520,74 +518,3 @@ INSERT INTO SubCategories (CategoryID, SubCategoryName) VALUES
 ((SELECT CategoryID FROM Categories WHERE CategoryName = 'Bất động sản'), 'Dự án'),
 ((SELECT CategoryID FROM Categories WHERE CategoryName = 'Pháp luật'), 'Trong nước'),
 ((SELECT CategoryID FROM Categories WHERE CategoryName = 'Pháp luật'), 'Quốc tế');
-select * from subcategories
-INSERT INTO Tags (TagName) VALUES
-('nóng'),
-('kinh tế'),
-('bất động sản'),
-('pháp luật'),
-('quốc tế');
-select * from tags
-
-INSERT INTO Posts (UserID, CategoryID, SubCategoryID, Title, Content, Status, Featured) VALUES
-((SELECT UserID FROM Users WHERE UserName = 'nguyenvanA'), 
- (SELECT CategoryID FROM Categories WHERE CategoryName = 'Thời Sự'), 
- (SELECT SubCategoryID FROM SubCategories WHERE SubCategoryName = 'Trong nước' AND CategoryID = (SELECT CategoryID FROM Categories WHERE CategoryName = 'Thời Sự')), 
- 'Cơn bão số 5 đổ bộ miền Trung', 
- 'Nội dung chi tiết về cơn bão số 5 và ảnh hưởng đến các tỉnh miền Trung...', 
- 'Published', TRUE),
-((SELECT UserID FROM Users WHERE UserName = 'tranthiB'), 
- (SELECT CategoryID FROM Categories WHERE CategoryName = 'Kinh doanh'), 
- (SELECT SubCategoryID FROM SubCategories WHERE SubCategoryName = 'Chứng khoán' AND CategoryID = (SELECT CategoryID FROM Categories WHERE CategoryName = 'Kinh doanh')), 
- 'VN-Index vượt mốc 1.300 điểm', 
- 'Phân tích thị trường chứng khoán tuần qua và dự báo xu hướng...', 
- 'Published', FALSE),
-((SELECT UserID FROM Users WHERE UserName = 'nguyenvanA'), 
- (SELECT CategoryID FROM Categories WHERE CategoryName = 'Bất động sản'), 
- (SELECT SubCategoryID FROM SubCategories WHERE SubCategoryName = 'Thị trường' AND CategoryID = (SELECT CategoryID FROM Categories WHERE CategoryName = 'Bất động sản')), 
- 'Giá nhà đất Hà Nội tăng đột biến', 
- 'Báo cáo về giá bất động sản tại Hà Nội trong quý 3/2025...', 
- 'Draft', TRUE),
-((SELECT UserID FROM Users WHERE UserName = 'tranthiB'), 
- (SELECT CategoryID FROM Categories WHERE CategoryName = 'Pháp luật'), 
- (SELECT SubCategoryID FROM SubCategories WHERE SubCategoryName = 'Quốc tế' AND CategoryID = (SELECT CategoryID FROM Categories WHERE CategoryName = 'Pháp luật')), 
- 'Vụ án quốc tế gây tranh cãi', 
- 'Thông tin về vụ án liên quan đến luật pháp quốc tế...', 
- 'Published', FALSE);
- select * from posts
-
- INSERT INTO Comments (PostID, UserID, Content) VALUES
-((SELECT PostID FROM Posts WHERE Title = 'Cơn bão số 5 đổ bộ miền Trung'), 
- (SELECT UserID FROM Users WHERE UserName = 'nguyenvanA'), 
- 'Hy vọng chính quyền hỗ trợ kịp thời cho người dân!'),
-((SELECT PostID FROM Posts WHERE Title = 'VN-Index vượt mốc 1.300 điểm'), 
- (SELECT UserID FROM Users WHERE UserName = 'quan'), 
- 'Tuyệt vời, thị trường đang rất sôi động!'),
-((SELECT PostID FROM Posts WHERE Title = 'Giá nhà đất Hà Nội tăng đột biến'), 
- (SELECT UserID FROM Users WHERE UserName = 'tranthiB'), 
- 'Cần chính sách kiểm soát giá cả.');
- select * from comments
-
-INSERT INTO PostTags (PostID, TagID) VALUES
-((SELECT PostID FROM Posts WHERE Title = 'Cơn bão số 5 đổ bộ miền Trung'), 
- (SELECT TagID FROM Tags WHERE TagName = 'nóng')),
-((SELECT PostID FROM Posts WHERE Title = 'VN-Index vượt mốc 1.300 điểm'), 
- (SELECT TagID FROM Tags WHERE TagName = 'kinh tế')),
-((SELECT PostID FROM Posts WHERE Title = 'VN-Index vượt mốc 1.300 điểm'), 
- (SELECT TagID FROM Tags WHERE TagName = 'quốc tế')),
-((SELECT PostID FROM Posts WHERE Title = 'Giá nhà đất Hà Nội tăng đột biến'), 
- (SELECT TagID FROM Tags WHERE TagName = 'bất động sản'));
- select * from posttags
-
- select * from subcategories
- select * from categories
- select * from users
- select * from posts
-
-SELECT PostID, UserID, CategoryID, SubCategoryID, Title, Content, CreatedAtDate, UpdatedAtDate, Status, Featured 
-      FROM Posts
-      WHERE Featured = TRUE
-      ORDER BY CreatedAtDate DESC
-      LIMIT 5;
-
-select * from Categories
