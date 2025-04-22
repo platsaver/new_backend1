@@ -1880,6 +1880,40 @@ app.post('/api/upload-avatar/:userId', upload.single('avatar'), async (req, res)
   }
 });
 
+//8) API liên quan đến thống kê 
+app.get('/api/statistics', async (req, res) => {
+  try {
+    // Truy vấn số lượng bài đăng
+    const postsResult = await pool.query('SELECT COUNT(*) AS total_posts FROM Posts');
+    const totalPosts = parseInt(postsResult.rows[0].total_posts);
+
+    // Truy vấn số lượng bình luận
+    const commentsResult = await pool.query('SELECT COUNT(*) AS total_comments FROM Comments');
+    const totalComments = parseInt(commentsResult.rows[0].total_comments);
+
+    // Truy vấn số lượng tài khoản
+    const usersResult = await pool.query('SELECT COUNT(*) AS total_users FROM Users');
+    const totalUsers = parseInt(usersResult.rows[0].total_users);
+
+    // Trả về kết quả thống kê
+    return res.status(200).json({
+      success: true,
+      data: {
+        totalPosts,
+        totalComments,
+        totalUsers
+      }
+    });
+  } catch (error) {
+    console.error('Lỗi khi lấy thống kê:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Lỗi server khi lấy thống kê',
+      error: error.message
+    });
+  }
+});
+
 
 // Xử lý lỗi 404
 app.use((req, res) => {
