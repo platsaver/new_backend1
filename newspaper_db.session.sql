@@ -264,7 +264,7 @@ select * from users
 CREATE ROLE author;
 CREATE ROLE admin;
 CREATE ROLE nguoidung;
--- admin
+-- adminPhân quyền
 GRANT ALL PRIVILEGES ON DATABASE newspaper_db TO admin;
 GRANT SELECT, UPDATE, DELETE ON TABLE Users TO admin;
 -- author 
