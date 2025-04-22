@@ -8,6 +8,64 @@
 	},
 	"item": [
 		{
+			"name": "http://localhost:3000/api/upload-markdown",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "markdown",
+							"type": "file",
+							"src": "/home/eurasoc/Downloads/article4.md"
+						},
+						{
+							"key": "userId",
+							"value": "2",
+							"type": "text"
+						},
+						{
+							"key": "categoryId",
+							"value": "1",
+							"type": "text"
+						},
+						{
+							"key": "subCategoryId",
+							"value": "1",
+							"type": "text"
+						},
+						{
+							"key": "status",
+							"value": "",
+							"type": "text"
+						},
+						{
+							"key": "featured",
+							"value": "false",
+							"type": "text"
+						}
+					]
+				},
+				"url": {
+					"raw": "http://localhost:3000/api/upload-markdown",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"api",
+						"upload-markdown"
+					]
+				}
+			},
+			"response": []
+		},
+		{
 			"name": "http://localhost:3000/posts",
 			"request": {
 				"auth": {
@@ -17,7 +75,7 @@
 				"header": [],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n        \"userid\": 1,\n        \"categoryid\": 4,\n        \"subcategoryid\": 10,\n        \"title\": \"Đảo quốc Thái Bình Dương khai trương máy ATM đầu tiên\",\n        \"content\": \"Tuvalu, một trong những quốc gia xa xôi nhất ở Thái Bình Dương, khai trương máy rút tiền ATM đầu tiên, sự kiện được coi là 'cột mốc đáng nhớ'\",\n        \"status\": \"Published\",\n        \"featured\": true,\n        \"slug\": \"article2\"\n    }",
+					"raw": "{\n    \"userid\": 1,\n    \"categoryid\": 4,\n    \"subcategoryid\": 10,\n    \"title\": \"test title\",\n    \"content\": \"test content\",\n    \"status\": \"Published\",\n    \"featured\": true, \n    \"slug\": \"test title\"\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -201,7 +259,7 @@
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "http://localhost:3000/api/posts/search?keyword  =Bão",
+					"raw": "http://localhost:3000/api/posts/search?keyword  =cướp",
 					"protocol": "http",
 					"host": [
 						"localhost"
@@ -215,7 +273,7 @@
 					"query": [
 						{
 							"key": "keyword  ",
-							"value": "Bão"
+							"value": "cướp"
 						}
 					]
 				}
@@ -231,7 +289,7 @@
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "http://localhost:3000/api/posts/authors?userIds=4&page=1&limit=10",
+					"raw": "http://localhost:3000/api/posts/authors?userIds=2",
 					"protocol": "http",
 					"host": [
 						"localhost"
@@ -244,16 +302,18 @@
 					],
 					"query": [
 						{
-							"key": "userIds",
-							"value": "4"
-						},
-						{
 							"key": "page",
-							"value": "1"
+							"value": "1",
+							"disabled": true
 						},
 						{
 							"key": "limit",
-							"value": "10"
+							"value": "10",
+							"disabled": true
+						},
+						{
+							"key": "userIds",
+							"value": "2"
 						}
 					]
 				}
@@ -269,7 +329,7 @@
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "http://localhost:3000/api/posts/status?statuses=Published&page=1&limit=10",
+					"raw": "http://localhost:3000/api/posts/status?statuses=Draft&page=1&limit=10",
 					"protocol": "http",
 					"host": [
 						"localhost"
@@ -283,7 +343,7 @@
 					"query": [
 						{
 							"key": "statuses",
-							"value": "Published"
+							"value": "Draft"
 						},
 						{
 							"key": "page",
@@ -308,7 +368,7 @@
 				"header": [],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n    \"userid\": 1,\n    \"categoryid\": 4,\n    \"subcategoryid\": 10,\n    \"title\": \"Đảo quốc Thái Bình Dương khai trương máy ATM đầu tiên (test)\",\n    \"content\": \"Tuvalu, một trong những quốc gia xa xôi nhất ở Thái Bình Dương, khai trương máy rút tiền ATM đầu tiên, sự kiện được coi là 'cột mốc đáng nhớ'\",\n    \"status\": \"Published\",\n    \"featured\": true, \n    \"slug\": \"article2\"\n}",
+					"raw": "{\n            \"userid\": 2,\n            \"categoryid\": 1,\n            \"subcategoryid\": 1,\n            \"title\": \"Cầm dao, cướp tiền ngân hàng ở Hà Nội\",\n            \"content\": \"# Diễn biến vụ việc\\n\\n## Một người đàn ông bịt mặt, cầm dao chọc tiết lợn xông vào Phòng giao dịch Phú Mỹ của ngân hàng VietinBank ở huyện Chương Mỹ.​\\n\\nSự việc xảy ra lúc 14h hôm nay tại Phòng giao dịch Phú Mỹ trong khu công nghiệp Phú Nghĩa, huyện Chương Mỹ, cách quốc lộ 6 chừng 50 m. Nghi phạm mặc áo sơ mi cộc tay, đội mũ lưỡi trai đen, đeo khẩu trang, cầm dao chọc tiết lợn, mang ba lô, đi bộ vào ngân hàng.​\\nHành động của nghi phạm\\n\\nTheo camera an ninh ghi lại, nghi phạm rút ra từ ba lô một con dao, một chai nghi là xăng để đe dọa các giao dịch viên. Anh ta sau đó chạy xung quanh nhằm uy hiếp, vứt ba lô vào quầy giao dịch, yêu cầu cho tiền vào.​\\n\\nMột tay cầm ba lô căng phồng, một tay cầm dao, hắn đi ra quốc lộ 6.​\\nPhản ứng và điều tra\\n\\nGần 17h, công an đang làm việc tại hiện trường. Hiện chưa rõ số tiền bị cướp.​\\n\\nMột bảo vệ tại công ty bên cạnh cho biết nghe tiếng hô cướp vội chạy ra ngoài xem thì thấy hai bảo vệ đồng nghiệp đang cầm điện thoại quay tên cướp và hô hoán. Ông cầm gạch định đuổi theo nhưng lúc này tên cướp đã lên xe máy phóng đi.​\\n\",\n            \"status\": \"Published\",\n            \"featured\": true\n        }",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -316,7 +376,7 @@
 					}
 				},
 				"url": {
-					"raw": "http://localhost:3000/posts/6",
+					"raw": "http://localhost:3000/posts/8",
 					"protocol": "http",
 					"host": [
 						"localhost"
@@ -324,7 +384,7 @@
 					"port": "3000",
 					"path": [
 						"posts",
-						"6"
+						"8"
 					]
 				}
 			},
@@ -339,7 +399,7 @@
 				"method": "DELETE",
 				"header": [],
 				"url": {
-					"raw": "http://localhost:3000/posts/5",
+					"raw": "http://localhost:3000/posts/1",
 					"protocol": "http",
 					"host": [
 						"localhost"
@@ -347,7 +407,7 @@
 					"port": "3000",
 					"path": [
 						"posts",
-						"5"
+						"1"
 					]
 				}
 			},
@@ -403,7 +463,7 @@
 					}
 				},
 				"url": {
-					"raw": "http://localhost:3000/api/posts/1/tags",
+					"raw": "http://localhost:3000/api/posts/2/tags",
 					"protocol": "http",
 					"host": [
 						"localhost"
@@ -412,7 +472,7 @@
 					"path": [
 						"api",
 						"posts",
-						"1",
+						"2",
 						"tags"
 					]
 				}
@@ -484,7 +544,7 @@
 					}
 				},
 				"url": {
-					"raw": "http://localhost:3000/api/posts/1/tags",
+					"raw": "http://localhost:3000/api/posts/2/tags",
 					"protocol": "http",
 					"host": [
 						"localhost"
@@ -493,7 +553,7 @@
 					"path": [
 						"api",
 						"posts",
-						"1",
+						"2",
 						"tags"
 					]
 				}
@@ -514,12 +574,12 @@
 						{
 							"key": "image",
 							"type": "file",
-							"src": "/home/eurasoc/Downloads/thu-tuong-kiem-tra-cao-toc-can-6899-2842-1745151293.jpg"
+							"src": "/home/eurasoc/Downloads/bomay.jpg"
 						}
 					]
 				},
 				"url": {
-					"raw": "http://localhost:3000/api/posts/1/media",
+					"raw": "http://localhost:3000/api/posts/8/media",
 					"protocol": "http",
 					"host": [
 						"localhost"
@@ -528,7 +588,7 @@
 					"path": [
 						"api",
 						"posts",
-						"1",
+						"8",
 						"media"
 					]
 				}
@@ -661,6 +721,38 @@
 				"auth": {
 					"type": "noauth"
 				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"CategoryName\": \"Sports\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:3000/api/categories",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"api",
+						"categories"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:3000/api/categories",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
 				"method": "GET",
 				"header": [],
 				"url": {
@@ -679,6 +771,63 @@
 			"response": []
 		},
 		{
+			"name": "http://localhost:3000/api/categories/5",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "PUT",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"CategoryName\": \"Updated Sports\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:3000/api/categories/5",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"api",
+						"categories",
+						"5"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:3000/api/categories/5",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:3000/api/categories/5",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"api",
+						"categories",
+						"5"
+					]
+				}
+			},
+			"response": []
+		},
+		{
 			"name": "http://localhost:3000/api/comments",
 			"request": {
 				"auth": {
@@ -688,7 +837,7 @@
 				"header": [],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n    \"postId\": 1,\n    \"userId\": 2,\n    \"content\": \"Test comment\"\n}",
+					"raw": "{\n    \"postId\": 8,\n    \"userId\": 2,\n    \"content\": \"Test comment\"\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -719,7 +868,7 @@
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "http://localhost:3000/api/comments/1",
+					"raw": "http://localhost:3000/api/comments/8",
 					"protocol": "http",
 					"host": [
 						"localhost"
@@ -728,7 +877,7 @@
 					"path": [
 						"api",
 						"comments",
-						"1"
+						"8"
 					]
 				}
 			},
@@ -744,7 +893,7 @@
 				"header": [],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n    \"postId\": 1,\n    \"userId\": 1,\n    \"content\": \"Test comment new\"\n}",
+					"raw": "{\n    \"postId\": 1,\n    \"userId\": 1,\n    \"content\": \"Test comment new 3\"\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -793,12 +942,24 @@
 		},
 		{
 			"name": "http://localhost:3000/api/comments/pending",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
 			"request": {
 				"auth": {
 					"type": "noauth"
 				},
 				"method": "GET",
 				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
 				"url": {
 					"raw": "http://localhost:3000/api/comments/pending",
 					"protocol": "http",
@@ -825,7 +986,7 @@
 				"header": [],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n  \"status\": \"approved\",\n  \"moderatorId\": 1,\n  \"moderationNote\": \"Bình luận phù hợp\"\n}",
+					"raw": "{\n  \"status\": \"rejected\",\n  \"moderatorId\": 1,\n  \"moderationNote\": \"Bình luận phù hợp\"\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -833,7 +994,7 @@
 					}
 				},
 				"url": {
-					"raw": "http://localhost:3000/api/comments/2/moderate",
+					"raw": "http://localhost:3000/api/comments/3/moderate",
 					"protocol": "http",
 					"host": [
 						"localhost"
@@ -842,7 +1003,7 @@
 					"path": [
 						"api",
 						"comments",
-						"2",
+						"3",
 						"moderate"
 					]
 				}
@@ -906,6 +1067,29 @@
 			"response": []
 		},
 		{
+			"name": "http://localhost:3000/api/logout",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:3000/api/logout",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"api",
+						"logout"
+					]
+				}
+			},
+			"response": []
+		},
+		{
 			"name": "http://localhost:3000/api/register",
 			"request": {
 				"auth": {
@@ -915,7 +1099,7 @@
 				"header": [],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n    \"userName\": \"testuser2\",\n    \"password\": \"password123\",\n    \"email\": \"piyiwax217@asaption.com\"\n}",
+					"raw": "{\n    \"userName\": \"testuser1\",\n    \"password\": \"password123\",\n    \"email\": \"demilif327@agiuse.com\"\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -947,7 +1131,7 @@
 				"header": [],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n    \"email\": \"piyiwax217@asaption.com\",\n    \"otp\": \"183605\",\n    \"userName\": \"testuser2\",\n    \"password\": \"password123\"\n}",
+					"raw": "{\n    \"email\": \"demilif327@agiuse.com\",\n    \"otp\": \"850125\",\n    \"userName\": \"testuser\",\n    \"password\": \"password123\"\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -965,6 +1149,40 @@
 						"api",
 						"register",
 						"verify"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:3000/api/upload-avatar/1",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "avatar",
+							"type": "file",
+							"src": "/home/eurasoc/Downloads/image1.jpeg"
+						}
+					]
+				},
+				"url": {
+					"raw": "http://localhost:3000/api/upload-avatar/1",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"api",
+						"upload-avatar",
+						"1"
 					]
 				}
 			},
@@ -1018,15 +1236,47 @@
 			"response": []
 		},
 		{
-			"name": "http://localhost:3000/api/users/2",
+			"name": "http://localhost:3000/api/session",
 			"request": {
 				"auth": {
 					"type": "noauth"
 				},
-				"method": "DELETE",
+				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "http://localhost:3000/api/users/12",
+					"raw": "http://localhost:3000/api/session",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"api",
+						"session"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:3000/api/users/1/role",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "PUT",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"role\": \"author\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:3000/api/users/2/role",
 					"protocol": "http",
 					"host": [
 						"localhost"
@@ -1035,14 +1285,47 @@
 					"path": [
 						"api",
 						"users",
-						"12"
+						"2",
+						"role"
 					]
 				}
 			},
 			"response": []
 		},
 		{
-			"name": "http://localhost:3000/api/article/article1",
+			"name": "http://localhost:3000/users/1",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "PATCH",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"username\": \"testusernew\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:3000/users/1",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"users",
+						"1"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:3000/api/statistics",
 			"request": {
 				"auth": {
 					"type": "noauth"
@@ -1050,7 +1333,7 @@
 				"method": "GET",
 				"header": [],
 				"url": {
-					"raw": "http://localhost:3000/api/article/article1",
+					"raw": "http://localhost:3000/api/statistics",
 					"protocol": "http",
 					"host": [
 						"localhost"
@@ -1058,8 +1341,7 @@
 					"port": "3000",
 					"path": [
 						"api",
-						"article",
-						"article1"
+						"statistics"
 					]
 				}
 			},
