@@ -20,13 +20,13 @@ app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 app.use(cors()); // Cho phép CORS
 app.use(express.json()); // Parse JSON body
 
-// Cấu hình kết nối PostgreSQL (thay đổi thông tin nếu cần)
+// Cấu hình kết nối PostgreSQL 
 const pool = new Pool({
     host: 'localhost',
     port: 5432,
-    user: 'testusernewnew', // Thay bằng username của bạn
-    password: 'password456', // Thay bằng password của bạn
-    database: 'newspaper_db' // Thay bằng tên database của bạn
+    user: 'postgres', // username
+    password: '1234', // password
+    database: 'newspaper_db' // current database
 });
 // Nodemailer transporter
 const transporter = nodemailer.createTransport({
