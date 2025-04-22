@@ -24,8 +24,8 @@ app.use(express.json()); // Parse JSON body
 const pool = new Pool({
     host: 'localhost',
     port: 5432,
-    user: 'postgres', // Thay bằng username của bạn
-    password: '1234', // Thay bằng password của bạn
+    user: 'testusernewnew', // Thay bằng username của bạn
+    password: 'password456', // Thay bằng password của bạn
     database: 'newspaper_db' // Thay bằng tên database của bạn
 });
 // Nodemailer transporter
