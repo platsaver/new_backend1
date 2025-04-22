@@ -7,9 +7,19 @@ CREATE TABLE Users (
     CreatedAtDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UpdatedAtDate TIMESTAMP DEFAULT NULL
 );
-select * from users
+ALTER TABLE Users ADD COLUMN PlainPassword VARCHAR(255);
+select * from sessions
 ALTER TABLE Users
-ALTER COLUMN Role SET DEFAULT 'NguoiDung';
+
+select * from sessions
+ALTER COLUMN Role SET DEFAULT 'nguoidung';
+-- Specificially created for logout
+CREATE TABLE Sessions (
+    sid VARCHAR(255) PRIMARY KEY,
+    sess JSONB NOT NULL,
+    expire TIMESTAMP NOT NULL
+);
+
 select * from users
 CREATE TABLE Categories (
     CategoryID SERIAL PRIMARY KEY,
@@ -46,6 +56,7 @@ CREATE TABLE Posts (
 ALTER TABLE Posts ADD COLUMN IF NOT EXISTS slug VARCHAR(255) UNIQUE;
 update Posts set slug='article1' where postid='1'
 select * from posts
+select * from users
 ALTER TABLE Posts
 ADD Featured BOOLEAN DEFAULT FALSE;
 CREATE TABLE Comments (
@@ -134,12 +145,12 @@ BEGIN
   END IF;
 
   -- Gán quyền dựa trên giá trị cột Role
-  IF NEW.Role = 'Author' THEN
-    EXECUTE format('GRANT Author TO %I', NEW.UserName);
-  ELSIF NEW.Role = 'Admin' THEN
-    EXECUTE format('GRANT Admin TO %I', NEW.UserName);
-  ELSIF NEW.Role = 'NguoiDung' THEN
-    EXECUTE format('GRANT NguoiDung TO %I', NEW.UserName);
+  IF NEW.Role = 'author' THEN
+    EXECUTE format('GRANT author TO %I', NEW.UserName);
+  ELSIF NEW.Role = 'admin' THEN
+    EXECUTE format('GRANT admin TO %I', NEW.UserName);
+  ELSIF NEW.Role = 'nguoidung' THEN
+    EXECUTE format('GRANT nguoidung TO %I', NEW.UserName);
   ELSE
     RAISE NOTICE 'Role % không hợp lệ, không gán quyền', NEW.Role;
   END IF;
@@ -158,119 +169,116 @@ AFTER INSERT ON Users
 FOR EACH ROW
 EXECUTE FUNCTION assign_user_role_on_insert();
 
-ALTER TABLE Users ADD COLUMN PlainPassword VARCHAR(255);
 select * from users
 DROP OWNED BY testuser1;
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM testuser1;
 REVOKE ALL ON SCHEMA public FROM testuser1;
 DROP USER testuser1;
--- Hàm trigger để thu hồi quyền khi xóa tài khoản
-CREATE OR REPLACE FUNCTION revoke_and_drop_user_on_delete()
+select * from users
+-- Trigger tự động phân lại quyền
+-- Trigger tự động phân lại quyền
+-- Updated function to sync role changes with PostgreSQL role privileges
+CREATE OR REPLACE FUNCTION sync_user_role()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- First revoke the role based on the user's role
-  IF OLD.Role = 'Author' THEN
-    EXECUTE format('REVOKE Author FROM %I', OLD.UserName);
-  ELSIF OLD.Role = 'Admin' THEN
-    EXECUTE format('REVOKE Admin FROM %I', OLD.UserName);
-  ELSIF OLD.Role = 'NguoiDung' THEN
-    EXECUTE format('REVOKE NguoiDung FROM %I', OLD.UserName);
-  ELSE
-    RAISE NOTICE 'Role % không hợp lệ, không thu hồi quyền', OLD.Role;
-  END IF;
-  
-  -- Then drop the user/login from PostgreSQL
-  BEGIN
-    EXECUTE format('DROP USER IF EXISTS %I', OLD.UserName);
-    RAISE NOTICE 'Đã xóa user/login % khỏi hệ thống', OLD.UserName;
-  EXCEPTION
-    WHEN OTHERS THEN
-      RAISE NOTICE 'Lỗi khi xóa user/login %: %', OLD.UserName, SQLERRM;
-  END;
-  
-  RETURN OLD;
-EXCEPTION
-  WHEN OTHERS THEN
-    RAISE NOTICE 'Lỗi khi xử lý xóa tài khoản %: %', OLD.UserName, SQLERRM;
-    RETURN OLD;
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger to execute the function when a user is deleted
-CREATE TRIGGER trigger_revoke_and_drop_user_on_delete
-AFTER DELETE ON Users
-FOR EACH ROW
-EXECUTE FUNCTION revoke_and_drop_user_on_delete();
-
--- Hàm trigger để phân lại quyền mỗi khi thay đổi thuộc tính role
--- Function to handle role changes
-CREATE OR REPLACE FUNCTION update_user_role()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Kiểm tra user tồn tại
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = NEW.Username) THEN
-        RAISE EXCEPTION 'User % không tồn tại trong PostgreSQL', NEW.Username;
+    -- Check if the user exists in PostgreSQL
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = NEW.UserName) THEN
+        RAISE EXCEPTION 'User % does not exist in PostgreSQL', NEW.UserName;
     END IF;
 
-    -- Cập nhật timestamp
+    -- Update timestamp
     NEW.UpdatedAtDate = CURRENT_TIMESTAMP;
 
-    -- Thu hồi tất cả các role hiện có (cách hiệu quả hơn)
-    EXECUTE format('REVOKE Author, Admin, NguoiDung FROM %I', NEW.Username);
-
-    -- Gán role mới
-    IF NEW.Role = 'Author' THEN
-        EXECUTE format('GRANT Author TO %I', NEW.Username);
-    ELSIF NEW.Role = 'Admin' THEN
-        EXECUTE format('GRANT Admin TO %I', NEW.Username);
-    ELSIF NEW.Role = 'NguoiDung' THEN
-        EXECUTE format('GRANT NguoiDung TO %I', NEW.Username);
+    -- Revoke only irrelevant roles based on new Role
+    IF NEW.Role = 'author' THEN
+        EXECUTE format('REVOKE admin, nguoidung FROM %I', NEW.UserName);
+        EXECUTE format('GRANT author TO %I', NEW.UserName);
+    ELSIF NEW.Role = 'admin' THEN
+        EXECUTE format('REVOKE author FROM %I', NEW.UserName);
+        EXECUTE format('GRANT admin, nguoidung TO %I', NEW.UserName); -- Grant both admin and nguoidung
+    ELSIF NEW.Role = 'nguoidung' THEN
+        EXECUTE format('REVOKE author, admin FROM %I', NEW.UserName);
+        EXECUTE format('GRANT nguoidung TO %I', NEW.UserName);
     ELSE
-        RAISE EXCEPTION 'Vai trò không hợp lệ: %', NEW.Role;
+        RAISE EXCEPTION 'Invalid role: %', NEW.Role;
     END IF;
 
     RETURN NEW;
 EXCEPTION
     WHEN OTHERS THEN
-        RAISE EXCEPTION 'Lỗi khi cập nhật role cho user %: %', NEW.Username, SQLERRM;
+        RAISE EXCEPTION 'Error syncing role for user %: %', NEW.UserName, SQLERRM;
 END;
 $$ LANGUAGE plpgsql;
-select * from users
--- Chỉ tạo trigger MỘT lần
-DROP TRIGGER IF EXISTS role_update_trigger ON Users;
-CREATE TRIGGER role_update_trigger
+
+ALTER FUNCTION sync_user_role() OWNER TO postgres;
+
+-- Drop existing trigger if it exists (để đảm bảo sạch)
+DROP TRIGGER IF EXISTS sync_role_trigger ON Users;
+
+-- Create trigger to execute the function before updating the Role column
+CREATE TRIGGER sync_role_trigger
 BEFORE UPDATE OF Role ON Users
 FOR EACH ROW
 WHEN (OLD.Role IS DISTINCT FROM NEW.Role)
-EXECUTE FUNCTION update_user_role();
+EXECUTE FUNCTION sync_user_role();
 
-UPDATE Users SET Role = 'NguoiDung' WHERE Username = 'testuser1';
 select * from users
-SELECT rolname FROM pg_roles WHERE rolname = 'testuser1';
-/*---*/
+UPDATE Users SET Role = 'nguoidung' WHERE UserName = 'testuser';
+EXPLAIN UPDATE Users SET Role = 'admin' WHERE UserName = 'testuser';
+SELECT grantee, privilege_type
+FROM information_schema.routine_privileges
+WHERE routine_name = 'sync_user_role';
+SELECT UserName, Role FROM Users WHERE UserName = 'testuser';
 
+-- Trigger tự động cập nhật sql login mỗi khi thay đổi username hay password
+-- Hàm trigger để đồng bộ role PostgreSQL với UserName và PlainPassword
+CREATE OR REPLACE FUNCTION sync_role_with_users()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Nếu UserName thay đổi, đổi tên role
+  IF OLD.UserName IS DISTINCT FROM NEW.UserName THEN
+    EXECUTE format('ALTER ROLE %I RENAME TO %I', OLD.UserName, NEW.UserName);
+  END IF;
 
+  -- Nếu PlainPassword thay đổi, cập nhật mật khẩu role
+  IF OLD.PlainPassword IS DISTINCT FROM NEW.PlainPassword THEN
+    EXECUTE format('ALTER ROLE %I WITH PASSWORD %L', NEW.UserName, NEW.PlainPassword);
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Drop existing trigger if it exists to avoid conflicts
+DROP TRIGGER IF EXISTS sync_credentials_trigger ON Users;
+
+-- Trigger với tên mới để kích hoạt hàm trên khi cập nhật UserName hoặc PlainPassword
+CREATE TRIGGER sync_credentials_trigger
+AFTER UPDATE OF UserName, PlainPassword ON Users
+FOR EACH ROW
+WHEN (OLD.UserName IS DISTINCT FROM NEW.UserName OR OLD.PlainPassword IS DISTINCT FROM NEW.PlainPassword)
+EXECUTE FUNCTION sync_role_with_users();
+select * from users
 /*Phân quyền và thu hồi quyền (khi cần)*/
-CREATE USER john_doe WITH PASSWORD 'hashed_password_123';
-CREATE USER jane_smith WITH PASSWORD 'hashed_password_456';
-CREATE ROLE Author;
-CREATE ROLE Admin;
-CREATE ROLE NguoiDung;
--- Admin
-GRANT ALL PRIVILEGES ON DATABASE newspaper_db TO Admin;
--- Author 
-GRANT SELECT ON Users, Posts, Comments, Categories, SubCategories, Tags, PostTags TO Author;
-GRANT INSERT, UPDATE, DELETE ON Posts TO Author;
-GRANT INSERT, UPDATE, DELETE ON Comments TO Author;
-GRANT INSERT ON Tags TO Author;
-GRANT INSERT, DELETE ON PostTags TO Author;
--- NguoiDung
-GRANT SELECT ON Posts TO NguoiDung;
-GRANT SELECT, INSERT, UPDATE, DELETE ON Comments TO NguoiDung;
--- Grant sequence to Author and Admin
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO Author;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO Admin;
-GRANT USAGE, SELECT ON SEQUENCE Comments_CommentID_seq TO NguoiDung;
+CREATE ROLE author;
+CREATE ROLE admin;
+CREATE ROLE nguoidung;
+-- admin
+GRANT ALL PRIVILEGES ON DATABASE newspaper_db TO admin;
+GRANT SELECT, UPDATE, DELETE ON TABLE Users TO admin;
+-- author 
+GRANT SELECT ON Users, Posts, Comments, Categories, SubCategories, Tags, PostTags TO author;
+GRANT INSERT, UPDATE, DELETE ON Posts TO author;
+GRANT INSERT, UPDATE, DELETE ON Comments TO author;
+GRANT INSERT ON Tags TO author;
+GRANT INSERT, DELETE ON PostTags TO author;
+-- nguoidung
+GRANT SELECT ON Posts TO nguoidung;
+GRANT SELECT, INSERT, UPDATE, DELETE ON Comments TO nguoidung;
+-- Grant sequence to author and admin
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO author;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO admin;
+GRANT USAGE, SELECT ON SEQUENCE Comments_CommentID_seq TO nguoidung;
 -- Bật RLS trên Posts
 ALTER TABLE Posts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE Posts FORCE ROW LEVEL SECURITY; -- Buộc tất cả user (trừ owner) tuân theo RLS
@@ -278,25 +286,25 @@ ALTER TABLE Posts FORCE ROW LEVEL SECURITY; -- Buộc tất cả user (trừ own
 -- Policy cho SELECT trên Posts (xem tất cả)
 CREATE POLICY select_posts ON Posts
   FOR SELECT
-  TO Author
+  TO author
   USING (true);
 
--- Policy cho INSERT trên Posts (gán UserID của Author)
+-- Policy cho INSERT trên Posts (gán UserID của author)
 CREATE POLICY insert_posts ON Posts
   FOR INSERT
-  TO Author
+  TO author
   WITH CHECK (UserID = current_setting('my.current_user_id')::int);
 
 -- Policy cho UPDATE trên Posts (chỉ sửa của mình)
 CREATE POLICY update_posts ON Posts
   FOR UPDATE
-  TO Author
+  TO author
   USING (UserID = current_setting('my.current_user_id')::int);
 
 -- Policy cho DELETE trên Posts (chỉ xóa của mình)
 CREATE POLICY delete_posts ON Posts
   FOR DELETE
-  TO Author
+  TO author
   USING (UserID = current_setting('my.current_user_id')::int);
 
 -- Bật RLS trên Comments
@@ -306,25 +314,25 @@ ALTER TABLE Comments FORCE ROW LEVEL SECURITY;
 -- Policy cho SELECT trên Comments (xem tất cả)
 CREATE POLICY select_comments ON Comments
   FOR SELECT
-  TO Author
+  TO author
   USING (true);
 
--- Policy cho INSERT trên Comments (gán UserID của Author)
+-- Policy cho INSERT trên Comments (gán UserID của author)
 CREATE POLICY insert_comments ON Comments
   FOR INSERT
-  TO Author
+  TO author
   WITH CHECK (UserID = current_setting('my.current_user_id')::int);
 
 -- Policy cho UPDATE trên Comments (chỉ sửa của mình)
 CREATE POLICY update_comments ON Comments
   FOR UPDATE
-  TO Author
+  TO author
   USING (UserID = current_setting('my.current_user_id')::int);
 
 -- Policy cho DELETE trên Comments (chỉ xóa của mình)
 CREATE POLICY delete_comments ON Comments
   FOR DELETE
-  TO Author
+  TO author
   USING (UserID = current_setting('my.current_user_id')::int);
 
 -- Bật RLS trên PostTags
@@ -334,14 +342,14 @@ ALTER TABLE PostTags FORCE ROW LEVEL SECURITY;
 -- Policy cho SELECT trên PostTags (xem tất cả)
 CREATE POLICY select_posttags ON PostTags
   FOR SELECT
-  TO Author
+  TO author
   USING (true);
 
--- Policy cho INSERT trên PostTags (chỉ cho PostID thuộc Author)
+-- Policy cho INSERT trên PostTags (chỉ cho PostID thuộc author)
 -- Policy cho INSERT trên PostTags
 CREATE POLICY insert_posttags ON PostTags
 FOR INSERT
-TO Author
+TO author
 WITH CHECK (
     EXISTS (
         SELECT 1
@@ -355,7 +363,7 @@ WITH CHECK (
 -- Policy cho DELETE trên PostTags
 CREATE POLICY delete_posttags ON PostTags
 FOR DELETE
-TO Author
+TO author
 USING (
     EXISTS (
         SELECT 1
@@ -369,42 +377,40 @@ USING (
 -- Policy cho SELECT trên Posts (xem tất cả)
 CREATE POLICY select_posts_nguoidung ON Posts
   FOR SELECT
-  TO NguoiDung
+  TO nguoidung
   USING (true);
 
 -- Policy cho SELECT trên Comments (xem tất cả)
 CREATE POLICY select_comments_nguoidung ON Comments
   FOR SELECT
-  TO NguoiDung
+  TO nguoidung
   USING (true);
 
--- Policy cho INSERT trên Comments (gán UserID của NguoiDung)
+-- Policy cho INSERT trên Comments (gán UserID của nguoidung)
 CREATE POLICY insert_comments_nguoidung ON Comments
   FOR INSERT
-  TO NguoiDung
+  TO nguoidung
   WITH CHECK (UserID = current_setting('my.current_user_id')::int);
 
 -- Policy cho UPDATE trên Comments (chỉ sửa của mình)
 CREATE POLICY update_comments_nguoidung ON Comments
   FOR UPDATE
-  TO NguoiDung
+  TO nguoidung
   USING (UserID = current_setting('my.current_user_id')::int);
 
 -- Policy cho DELETE trên Comments (chỉ xóa của mình)
 CREATE POLICY delete_comments_nguoidung ON Comments
   FOR DELETE
-  TO NguoiDung
+  TO nguoidung
   USING (UserID = current_setting('my.current_user_id')::int);
 
--- Đảm bảo Admin bỏ qua RLS
-GRANT ALL ON Posts, Comments, PostTags TO Admin;
+-- Đảm bảo admin bỏ qua RLS
+GRANT ALL ON Posts, Comments, PostTags TO admin;
 
 -- Quyền SELECT trên các bảng khác không cần RLS vì chỉ có SELECT
 -- (Users, Categories, SubCategories, Tags đã được cấp SELECT ở trên)
-GRANT Author TO john_doe;
-GRANT Admin TO jane_smith;
-GRANT CONNECT ON DATABASE newspaper_db TO Author, Admin, NguoiDung;
-GRANT USAGE ON SCHEMA public TO Author, Admin, NguoiDung;
+GRANT CONNECT ON DATABASE newspaper_db TO author, admin, nguoidung;
+GRANT USAGE ON SCHEMA public TO author, admin, nguoidung;
 
 
 -- Step 1: Drop the trigger and its function
@@ -438,38 +444,28 @@ DROP POLICY IF EXISTS insert_posttags ON PostTags;
 DROP POLICY IF EXISTS delete_posttags ON PostTags;
 
 -- Drop roles
-REVOKE ALL ON ALL TABLES IN SCHEMA public FROM Author, Admin, NguoiDung;
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM Author, Admin, NguoiDung;
-REVOKE ALL ON SCHEMA public FROM Author, Admin, NguoiDung;
-REVOKE ALL ON DATABASE newspaper_db FROM Author, Admin, NguoiDung;
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM author, admin, nguoidung;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM author, admin, nguoidung;
+REVOKE ALL ON SCHEMA public FROM author, admin, nguoidung;
+REVOKE ALL ON DATABASE newspaper_db FROM author, admin, nguoidung;
 
 DO $$
 BEGIN
    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'author') THEN
-      EXECUTE 'REASSIGN OWNED BY Author TO postgres';
+      EXECUTE 'REASSIGN OWNED BY author TO postgres';
    END IF;
    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'admin') THEN
-      EXECUTE 'REASSIGN OWNED BY Admin TO postgres';
+      EXECUTE 'REASSIGN OWNED BY admin TO postgres';
    END IF;
    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'nguoidung') THEN
-      EXECUTE 'REASSIGN OWNED BY NguoiDung TO postgres';
+      EXECUTE 'REASSIGN OWNED BY nguoidung TO postgres';
    END IF;
 END $$;
 
 -- Step 7: Drop roles
-DROP ROLE IF EXISTS Author;
-DROP ROLE IF EXISTS Admin;
-DROP ROLE IF EXISTS NguoiDung;
-
--- Step 8: Drop users
-DROP USER IF EXISTS john_doe;
-DROP USER IF EXISTS jane_smith;
-DROP USER IF EXISTS quan;
-select * from users
-SELECT * FROM information_schema.triggers WHERE trigger_name = 'trigger_assign_user_role';
-SELECT * FROM information_schema.routines WHERE routine_name = 'assign_user_role';
-SELECT rolname FROM pg_roles WHERE rolname IN ('author', 'admin', 'nguoidung');
-SELECT usename FROM pg_user WHERE usename IN ('john_doe', 'jane_smith');
+DROP ROLE IF EXISTS author;
+DROP ROLE IF EXISTS admin;
+DROP ROLE IF EXISTS nguoidung;
 /*---*/
 
 SELECT * FROM pg_roles WHERE rolname = 'admin';
@@ -485,7 +481,7 @@ ALTER SEQUENCE Categories_CategoryID_seq RESTART WITH 1;
 
 -- Reset sequence cho bảng SubCategories
 ALTER SEQUENCE SubCategories_SubCategoryID_seq RESTART WITH 1;
-
+delete from posts
 -- Reset sequence cho bảng Posts
 ALTER SEQUENCE Posts_PostID_seq RESTART WITH 1;
 
@@ -505,17 +501,7 @@ delete from comments;
 delete from posttags;
 delete from users;
 
-
--- Chèn dữ liệu vào bảng Users
-INSERT INTO Users (UserName, Role, Password, Email) VALUES
-('john_doe', 'Author', 'hashed_password_123', 'john@example.com'),
-('jane_smith', 'Admin', 'hashed_password_456', 'jane@example.com');
-insert into users (username, role, password, email) values
-('nguyenvanA', 'Author', 'hashed_password_1', 'nguyenvana@example.com'),
-('tranthiB', 'Author', 'hashed_password_2', 'tranthib@example.com'), 
-('quan', 'NguoiDung', 'quan123', 'quan123@gmail.com');
 select * from users
-
 INSERT INTO Categories (CategoryName) VALUES
 ('Thời Sự'),
 ('Kinh doanh'),

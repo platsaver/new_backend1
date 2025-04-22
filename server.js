@@ -64,6 +64,63 @@ const upload = multer({
   storage,
   fileFilter
 });
+
+// Multer for handling markdown
+// Add a new multer storage configuration for markdown files
+const markdownStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, path.join(__dirname, 'public/posts'));
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `${uniqueSuffix}${ext}`);
+  }
+});
+
+// Create a file filter for markdown files
+const markdownFilter = (req, file, cb) => {
+  // Check if file extension is .md or .markdown
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (ext === '.md' || ext === '.markdown') {
+    cb(null, true);
+  } else {
+    cb(new Error('Only markdown files (.md, .markdown) are allowed'), false);
+  }
+};
+
+// Create multer instance for markdown uploads
+const uploadMarkdown = multer({
+  storage: markdownStorage,
+  fileFilter: markdownFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB size limit
+  }
+});
+
+// Ensure posts directory exists
+(async () => {
+  try {
+    await fs.mkdir(path.join(__dirname, 'public/posts'), { recursive: true });
+    console.log('Posts directory created or already exists');
+  } catch (err) {
+    console.error('Error creating posts directory:', err);
+  }
+})();
+
+// Serve posts directory statically
+app.use('/posts', express.static(path.join(__dirname, 'public/posts')));
+
+// Generate slug from title
+function generateSlug(title) {
+  return title
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, '') // Remove special characters
+    .replace(/\s+/g, '-') // Replace spaces with hyphens
+    .replace(/-+/g, '-') // Replace multiple hyphens with single hyphen
+    .trim(); // Remove whitespace from both ends
+}
+
 // Middleware xử lý lỗi Multer
 const handleMulterError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
@@ -634,67 +691,106 @@ app.get('/api/posts/status', async (req, res) => {
 });
 
 //2) API liên quan đến markdown
-// API endpoint để lấy chi tiết bài viết
-app.get('/api/article/:slug', async (req, res) => {
-    try {
-        const slug = req.params.slug;
-        console.log('Yêu cầu slug:', slug);
-
-        // Truy vấn metadata từ bảng Posts
-        const postResult = await pool.query(`
-            SELECT p.postid, p.title, p.createdatdate AS timestamp, p.status, p.slug,
-                   u.username AS author,
-                   c.categoryname AS category,
-                   sc.subcategoryname AS subcategory
-            FROM Posts p
-            LEFT JOIN Users u ON p.userid = u.userid
-            LEFT JOIN Categories c ON p.categoryid = c.categoryid
-            LEFT JOIN SubCategories sc ON p.subcategoryid = sc.subcategoryid
-            WHERE p.slug = $1 AND p.status = 'Published'
-        `, [slug]);
-
-        if (postResult.rows.length === 0) {
-            console.log('Không tìm thấy bài viết với slug:', slug);
-            return res.status(404).json({ error: 'Bài viết không tồn tại' });
-        }
-
-        const post = postResult.rows[0];
-        console.log('Metadata bài viết:', post);
-
-        // Đọc file Markdown
-        const filePath = path.join(__dirname, 'posts', `${slug}.md`);
-        console.log('Đường dẫn file:', filePath);
-        let htmlContent;
-        try {
-            const fileContent = await fs.readFile(filePath, 'utf-8');
-            console.log('Nội dung file (100 ký tự đầu):', fileContent.substring(0, 100));
-            const { content } = matter(fileContent);
-            htmlContent = marked.parse(content); // Sử dụng marked.parse cho phiên bản mới
-        } catch (err) {
-            console.error('Lỗi đọc file:', err.message);
-            htmlContent = 'Nội dung không khả dụng';
-        }
-
-        // Tạo đối tượng trả về
-        const article = {
-            metadata: {
-                postId: post.postid,
-                title: post.title,
-                author: post.author,
-                categories: [post.category, post.subcategory].filter(Boolean),
-                timestamp: post.timestamp.toLocaleString('vi-VN'),
-                status: post.status,
-                slug: post.slug
-            },
-            body: htmlContent
-        };
-
-        // Trả về JSON
-        res.json(article);
-    } catch (err) {
-        console.error('Lỗi server:', err.message);
-        res.status(500).json({ error: 'Lỗi server' });
+// API tạo bài viết bằng markdown
+app.post('/api/upload-markdown', uploadMarkdown.single('markdown'), handleMulterError, async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
     }
+
+    // Ensure userId is provided
+    const userId = req.body.userId;
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+
+    // Parse frontmatter and content from the uploaded markdown file
+    const fileContent = await fs.readFile(req.file.path, 'utf8');
+    let frontmatter = {};
+    let content = fileContent;
+    
+    try {
+      const parsed = matter(fileContent);
+      frontmatter = parsed.data;
+      content = parsed.content;
+    } catch (error) {
+      console.warn('Error parsing frontmatter:', error);
+    }
+
+    // Extract title and other metadata from frontmatter
+    const title = frontmatter.title || req.file.originalname.replace(/\.md$|\.markdown$/i, '');
+    const categoryId = frontmatter.categoryId || req.body.categoryId || null;
+    const subCategoryId = frontmatter.subCategoryId || req.body.subCategoryId || null;
+    const status = frontmatter.status || req.body.status || 'Draft';
+
+    // Generate slug from title
+    let slug = generateSlug(title);
+    
+    // Check if slug already exists and make it unique if needed
+    const slugExists = await pool.query('SELECT slug FROM Posts WHERE slug = $1', [slug]);
+    if (slugExists.rows.length > 0) {
+      slug = `${slug}-${Date.now().toString().slice(-6)}`;
+    }
+
+    // Save post to database
+    const query = `
+      INSERT INTO Posts (
+        UserID,
+        CategoryID,
+        SubCategoryID,
+        Title,
+        Content,
+        CreatedAtDate,
+        Status,
+        slug
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING PostID
+    `;
+    
+    const values = [
+      userId,
+      categoryId,
+      subCategoryId,
+      title,
+      content,
+      new Date(),
+      status,
+      slug
+    ];
+
+    const result = await pool.query(query, values);
+    const postId = result.rows[0].PostID;
+
+    // Store file information separately if needed (optional)
+    // This helps track the actual file locations
+    const fileMetadata = {
+      postId,
+      filename: req.file.filename,
+      filepath: req.file.path,
+      originalName: req.file.originalname,
+      uploadDate: new Date(),
+      frontmatter: JSON.stringify(frontmatter)
+    };
+
+    // You might want to store this in a separate table
+    // await pool.query('INSERT INTO post_files (...) VALUES (...)', [...]);
+
+    res.status(201).json({
+      success: true,
+      message: 'Post created successfully from markdown file',
+      postId,
+      title,
+      slug,
+      filepath: `/posts/${req.file.filename}`,
+      categoryId,
+      subCategoryId,
+      status,
+      frontmatter
+    });
+  } catch (error) {
+    console.error('Error creating post from markdown file:', error);
+    res.status(500).json({ error: 'Error uploading file and creating post', details: error.message });
+  }
 });
 //3) API liên quan đến quản lý tag
 // Tạo một tag mới
@@ -855,7 +951,7 @@ app.delete('/api/posts/:postId/tags', async (req, res) => {
       return res.status(400).json({ error: 'tagIds must be a non-empty array' });
   }
 
-  // Kiểm tra tất cả tagIds là số hợp lệupdate users set role='NguoiDung' where username='testuser1'
+  // Kiểm tra tất cả tagIds là số hợp lệupdate users set role='nguoidung' where username='testuser1'
   const invalidTagIds = tagIds.filter(id => isNaN(id) || id <= 0);
   if (invalidTagIds.length > 0) {
       return res.status(400).json({ error: 'All tagIds must be valid positive numbers' });
@@ -1249,7 +1345,7 @@ app.put('/api/comments/:commentId/moderate', async (req, res) => {
 app.get('/api/comments/moderation-history', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT c.*, u.UserName as Author, m.UserName as Moderator, p.Title as PostTitle
+      `SELECT c.*, u.UserName as author, m.UserName as Moderator, p.Title as PostTitle
        FROM Comments c
        JOIN Users u ON c.UserID = u.UserID
        JOIN Users m ON c.ModeratorID = m.UserID
@@ -1414,7 +1510,7 @@ app.post('/api/register/verify', async (req, res) => {
       // Insert user into database with hashed password and plain password
       const result = await pool.query(
           'INSERT INTO Users (UserName, Password, Email, Role, PlainPassword) VALUES ($1, $2, $3, $4, $5) RETURNING UserID, UserName, Email, Role, CreatedAtDate',
-          [userName, hashedPassword, email, 'NguoiDung', password]
+          [userName, hashedPassword, email, 'nguoidung', password]
       );
 
       // Remove OTP from storage
@@ -1436,45 +1532,6 @@ app.post('/api/register/verify', async (req, res) => {
   }
 });
 
-// Login API (Compare credentials with database)
-app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body;
-
-  // Validate input
-  if (!email || !password) {
-      return res.status(400).json({ error: 'Missing required fields' });
-  }
-
-  try {
-      // Check if user exists
-      const result = await pool.query('SELECT * FROM Users WHERE Email = $1', [email]);
-      if (result.rows.length === 0) {
-          return res.status(401).json({ error: 'Invalid email or password' });
-      }
-
-      const user = result.rows[0];
-
-      // Compare password
-      const isMatch = await bcrypt.compare(password, user.password);
-      if (!isMatch) {
-          return res.status(401).json({ error: 'Invalid email or password' });
-      }
-
-      res.status(200).json({
-          message: 'Login successful',
-          user: {
-              userId: user.userid,
-              userName: user.username,
-              email: user.email,
-              role: user.role,
-              createdAtDate: user.createdatdate,
-          },
-      });
-  } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Internal server error' });
-  }
-});
 
 // Liệt kê thông tin tất cả người dùng trong hệ thống
 app.get('/api/users', async (req, res) => {
@@ -1529,87 +1586,91 @@ app.get('/api/users/:id', async (req, res) => {
   }
 });
 
+// Cập nhật role của user
+app.put('/api/users/:userId/role', async (req, res) => {
+  const { userId } = req.params;
+  const { role } = req.body;
 
-app.delete('/api/users/:id', async (req, res) => {
-  const userId = parseInt(req.params.id);
-  
-  // Validate input
-  if (isNaN(userId)) {
-    return res.status(400).json({
-      success: false,
-      message: 'Invalid user ID'
-    });
-  }
-  
+  // Danh sách các role hợp lệ
+  const validRoles = ['admin', 'nguoidung', 'author'];
+
   try {
-    const client = await pool.connect();
-    
-    try {
-      await client.query('BEGIN');
-      
-      // Check if user exists and get username
-      const userCheck = await client.query(
-        'SELECT UserID, UserName FROM Users WHERE UserID = $1',
-        [userId]
-      );
-      
-      if (userCheck.rows.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: 'User not found'
-        });
-      }
-      
-      const userName = userCheck.rows[0].UserName;
-      
-      // Delete user from Users table (this will trigger the revoke_role_on_delete function)
-      await client.query(
-        'DELETE FROM Users WHERE UserID = $1',
-        [userId]
-      );
-      
-      // Now drop the PostgreSQL user/login
-      if (userName) {
-        try {
-          // Check if the PostgreSQL user exists first
-          const userExists = await client.query(
-            "SELECT 1 FROM pg_roles WHERE rolname = $1",
-            [userName]
-          );
-          
-          if (userExists.rows.length > 0) {
-            // Drop the user with CASCADE to clean up any owned objects
-            await client.query(
-              `DROP USER IF EXISTS ${client.escapeIdentifier(userName)} CASCADE`
-            );
-          }
-        } catch (dropError) {
-          // Log but don't fail the operation
-          console.warn('Warning: Could not drop PostgreSQL user:', dropError);
-          // Consider whether to continue or rollback here
-        }
-      }
-      
-      await client.query('COMMIT');
-      
-      res.json({
-        success: true,
-        message: `User with ID ${userId} deleted successfully`
+    // Kiểm tra role hợp lệ
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({
+        error: 'Invalid role. Valid roles are: ' + validRoles.join(', ')
       });
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
     }
-  } catch (error) {
-    console.error('Error deleting user:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error'
+
+    // Cập nhật role trong database
+    const result = await pool.query(
+      'UPDATE Users SET Role = $1 WHERE UserID = $2 RETURNING UserID, UserName, Role',
+      [role, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      message: 'Role updated successfully',
+      user: result.rows[0]
     });
+  } catch (error) {
+    console.error('Error updating role:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+//Đồng bộ đăng nhập tài khoản với thông tin trong bảng
+app.patch('/users/:userId', async (req, res) => {
+  const { userId } = req.params;
+  const { username, password } = req.body;
+
+  try {
+      // Validate input
+      if (!username && !password) {
+          return res.status(400).json({ error: 'At least one of username or password must be provided' });
+      }
+
+      // Prepare update fields
+      const updates = {};
+      if (username) updates.UserName = username;
+      if (password) {
+          updates.PlainPassword = password;
+          updates.Password = await bcrypt.hash(password, 10); // Hash password with bcrypt
+      }
+      updates.UpdatedAtDate = new Date();
+
+      // Build dynamic SQL query
+      const fields = Object.keys(updates).map((key, index) => `${key} = $${index + 1}`);
+      const values = Object.values(updates);
+
+      if (fields.length === 0) {
+          return res.status(400).json({ error: 'No valid fields to update' });
+      }
+
+      // Update user in database
+      const query = `
+          UPDATE Users
+          SET ${fields.join(', ')}
+          WHERE UserID = $${fields.length + 1}
+          RETURNING UserID, UserName, Role, Email, CreatedAtDate, UpdatedAtDate
+      `;
+      const result = await pool.query(query, [...values, userId]);
+
+      if (result.rows.length === 0) {
+          return res.status(404).json({ error: 'User not found' });
+      }
+
+      // Return updated user (excluding Password and PlainPassword)
+      res.json(result.rows[0]);
+  } catch (error) {
+      console.error('Error updating user:', error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 
 // Xử lý lỗi 404
 app.use((req, res) => {
