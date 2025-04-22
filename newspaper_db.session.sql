@@ -8,17 +8,18 @@ CREATE TABLE Users (
     UpdatedAtDate TIMESTAMP DEFAULT NULL
 );
 ALTER TABLE Users ADD COLUMN PlainPassword VARCHAR(255);
-select * from sessions
 ALTER TABLE Users
 
 select * from sessions
 ALTER COLUMN Role SET DEFAULT 'nguoidung';
 -- Specificially created for logout
-CREATE TABLE Sessions (
-    sid VARCHAR(255) PRIMARY KEY,
-    sess JSONB NOT NULL,
-    expire TIMESTAMP NOT NULL
+CREATE TABLE IF NOT EXISTS session (
+    sid VARCHAR NOT NULL COLLATE "default",
+    sess JSON NOT NULL,
+    expire TIMESTAMP(6) NOT NULL,
+    CONSTRAINT session_pkey PRIMARY KEY (sid)
 );
+select * from session
 
 select * from users
 CREATE TABLE Categories (

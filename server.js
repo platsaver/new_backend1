@@ -9,6 +9,8 @@ const nodemailer = require('nodemailer');
 const bcrypt = require('bcrypt');
 const marked = require('marked');
 const matter = require('gray-matter');
+const session = require('express-session');
+const PgSessionStore = require('connect-pg-simple')(session);
 
 const app = express();
 const port = 3000; // Cổng server
@@ -129,6 +131,34 @@ const handleMulterError = (err, req, res, next) => {
       return res.status(400).json({ error: err.message });
   }
   next();
+};
+
+//Handling session
+// Session middleware configuration
+app.use(
+  session({
+    store: new PgSessionStore({
+      pool: pool, // Use the existing PostgreSQL pool
+      tableName: 'session', // Table to store sessions
+    }),
+    secret: 'zgvfYzjGCntGBERTO0YiJy+Cp4lmWbHxLUMIKp86zFu0Q/JHnSvHfk8hBs4nzGml', // Replace with a secure secret key
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      httpOnly: true, // Prevent client-side access to cookies
+      secure: process.env.NODE_ENV === 'production', // Use secure cookies in production
+    },
+  })
+);
+
+// Middleware to check if user is authenticated
+const isAuthenticated = (req, res, next) => {
+  if (req.session.userId) {
+    next();
+  } else {
+    res.status(401).json({ error: 'Unauthorized. Please log in.' });
+  }
 };
 
 // Kiểm tra kết nối database
@@ -1450,6 +1480,62 @@ app.delete('/api/comments/:commentId', async (req, res) => {
 });
 
 //7) API liên quan đến quản lý users
+// API: Login
+app.post('/api/login', async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    // Check if user exists
+    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    const user = result.rows[0];
+
+    // Verify password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    // Create session
+    req.session.userId = user.userid;
+    req.session.username = user.username;
+
+    res.json({
+      message: 'Login successful',
+      user: { id: user.userid, username: user.username, email: user.email },
+    });
+  } catch (err) {
+    console.error('Error during login:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// API: Logout
+app.post('/api/logout', (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      console.error('Error during logout:', err);
+      return res.status(500).json({ error: 'Failed to log out' });
+    }
+    res.clearCookie('connect.sid'); // Clear session cookie
+    res.json({ message: 'Logout successful' });
+  });
+});
+
+// API: Check session (to verify if user is logged in)
+app.get('/api/session', (req, res) => {
+  if (req.session.userId) {
+    res.json({
+      isAuthenticated: true,
+      user: { id: req.session.userId, username: req.session.username },
+    });
+  } else {
+    res.json({ isAuthenticated: false });
+  }
+});
+
 // Register API (Send OTP to email)
 app.post('/api/register', async (req, res) => {
   const { userName, password, email } = req.body;
