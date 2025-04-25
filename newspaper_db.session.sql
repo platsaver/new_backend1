@@ -501,6 +501,8 @@ delete from posttags;
 delete from users;
 
 select * from users
+select * from posts
+update posts set featured = true
 INSERT INTO Categories (CategoryName) VALUES
 ('Thời Sự'),
 ('Kinh doanh'),
