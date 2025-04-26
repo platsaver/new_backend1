@@ -92,6 +92,7 @@ CREATE TABLE Media (
     CreatedAtDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (PostID) REFERENCES Posts(PostID) ON DELETE CASCADE
 );
+select * from media
 /*Trigger*/
 -- Trigger ghi lại thời gian cập nhật bài viết
 -- Tạo hàm trigger
@@ -509,3 +510,38 @@ INSERT INTO SubCategories (CategoryID, SubCategoryName) VALUES
 ((SELECT CategoryID FROM Categories WHERE CategoryName = 'Bất động sản'), 'Dự án'),
 ((SELECT CategoryID FROM Categories WHERE CategoryName = 'Pháp luật'), 'Trong nước'),
 ((SELECT CategoryID FROM Categories WHERE CategoryName = 'Pháp luật'), 'Quốc tế');
+
+select * from media;
+SELECT 
+        p.PostID,
+        p.Title,
+        LEFT(p.Content, 200) AS Excerpt,
+        m.MediaURL AS ImageURL,
+        p.slug,
+        p.CreatedAtDate,
+        u.UserName AS Author,
+        c.CategoryName,
+        sc.SubCategoryName
+      FROM Posts p
+      INNER JOIN Users u ON p.UserID = u.UserID
+      LEFT JOIN Categories c ON p.CategoryID = c.CategoryID
+      LEFT JOIN SubCategories sc ON p.SubCategoryID = sc.SubCategoryID
+      LEFT JOIN Media m ON p.PostID = m.PostID
+      WHERE p.Featured = true
+      ORDER BY p.CreatedAtDate DESC
+      LIMIT 5;
+
+select * from tags
+select * from users
+
+SELECT 
+    p.PostID, 
+    p.Title,
+    (SELECT m.MediaURL FROM Media m 
+     WHERE m.PostID = p.PostID 
+     ORDER BY m.CreatedAtDate DESC LIMIT 1) as imageUrl,
+    CONCAT('./posts/post', p.PostID, '.html') as link
+FROM Posts p
+WHERE p.CategoryID = 4 AND p.Featured = true AND p.Status = 'Published'
+ORDER BY p.CreatedAtDate DESC
+LIMIT 4;

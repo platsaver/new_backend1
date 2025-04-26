@@ -11,14 +11,20 @@ const marked = require('marked');
 const matter = require('gray-matter');
 const session = require('express-session');
 const PgSessionStore = require('connect-pg-simple')(session);
+const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
 
 const app = express();
 const port = 3000; // Cổng server
 app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 
 // Middleware
-app.use(cors()); // Cho phép CORS
+app.use(cors({
+  origin: 'http://localhost:3001', // Replace with your frontend URL
+  credentials: true // Allow cookies
+}));
 app.use(express.json()); // Parse JSON body
+app.use(cookieParser()); // Required to parse cookies
 
 // Cấu hình kết nối PostgreSQL 
 const pool = new Pool({
@@ -173,6 +179,29 @@ const isAuthenticated = (req, res, next) => {
     res.status(401).json({ error: 'Unauthorized. Please log in.' });
   }
 };
+
+
+//JWT handling
+const authenticateToken = (req, res, next) => {
+  const token = req.cookies.authToken; // Get the token from the cookie
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized: No token provided' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, '8e56036c70a41b4e6202c3fd4c497d6ec3736f37d19bd07e720c064126962878'); // Verify the token
+    req.user = decoded; // Attach the decoded user data to the request
+    next();
+  } catch (err) {
+    console.error('Error verifying token:', err);
+    return res.status(403).json({ error: 'Unauthorized: Invalid token' });
+  }
+};
+
+// Example protected route
+app.get('/api/protected', authenticateToken, (req, res) => {
+  res.json({ message: 'This is a protected route', user: req.user });
+});
 
 // Kiểm tra kết nối database
 pool.connect((err, client, release) => {
@@ -358,34 +387,71 @@ app.delete('/posts/:id', async (req, res) => {
 app.get('/api/featured-posts', async (req, res) => {
   try {
     const query = `
-      SELECT PostID, UserID, CategoryID, SubCategoryID, Title, Content, 
-             CreatedAtDate, UpdatedAtDate, Status, Featured
-      FROM Posts
-      WHERE Featured = true
-      ORDER BY CreatedAtDate DESC
+      SELECT 
+        p.PostID,
+        p.Title,
+        LEFT(p.Content, 200) AS Excerpt,
+        m.MediaURL AS ImageURL,
+        p.slug,
+        p.CreatedAtDate,
+        u.UserName AS Author,
+        c.CategoryName,
+        sc.SubCategoryName
+      FROM Posts p
+      INNER JOIN Users u ON p.UserID = u.UserID
+      LEFT JOIN Categories c ON p.CategoryID = c.CategoryID
+      LEFT JOIN SubCategories sc ON p.SubCategoryID = sc.SubCategoryID
+      LEFT JOIN Media m ON p.PostID = m.PostID
+      WHERE p.Featured = true
+      ORDER BY p.CreatedAtDate DESC
       LIMIT 5;
     `;
     const result = await pool.query(query);
-    res.status(200).json(result.rows);
+
+    // Format the response to match the Article component's props
+    const formattedPosts = result.rows.map((post) => ({
+      categories: [post.categoryname].filter(Boolean),
+      title: post.title,
+      author: post.author,
+      timestamp: new Date(post.createdatdate).toLocaleString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Ho_Chi_Minh',
+      }) + ' (GMT+7)',
+      excerpt: post.excerpt,
+      link: `./posts/${post.slug}.html`,
+      // Thêm tiền tố /uploads/ nếu MediaURL chỉ chứa tên file
+      imageUrl: post.imageurl ? `${post.imageurl}` : null,
+    }));
+
+    res.status(200).json(formattedPosts);
   } catch (error) {
     console.error('Error fetching featured posts:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 // lấy 5 bài viết nổi bật nhất của một category 
+// Modified API endpoint to match the format needed by CategorySection
 app.get('/api/featured-posts/category/:categoryId', async (req, res) => {
   try {
     const categoryId = req.params.categoryId;
-    
     const query = `
-      SELECT PostID, UserID, CategoryID, SubCategoryID, Title, Content, 
-             CreatedAtDate, UpdatedAtDate, Status, Featured
-      FROM Posts
-      WHERE CategoryID = $1 AND Featured = true
-      ORDER BY CreatedAtDate DESC
+      SELECT 
+        p.PostID, 
+        p.Title,
+        (SELECT m.MediaURL FROM Media m 
+        WHERE m.PostID = p.PostID 
+        ORDER BY m.CreatedAtDate DESC LIMIT 1) as imageUrl,
+        CONCAT('./posts/post', p.PostID, '.html') as link
+      FROM Posts p
+      WHERE p.CategoryID = $1 AND p.Featured = true AND p.Status = 'Published'
+      ORDER BY p.CreatedAtDate DESC
       LIMIT 4;
     `;
-    
     const result = await pool.query(query, [categoryId]);
     res.status(200).json(result.rows);
   } catch (error) {
@@ -735,106 +801,178 @@ app.get('/api/posts/status', async (req, res) => {
 
 //2) API liên quan đến markdown
 // API tạo bài viết bằng markdown
-app.post('/api/upload-markdown', uploadMarkdown.single('markdown'), handleMulterError, async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
-
-    // Ensure userId is provided
-    const userId = req.body.userId;
-    if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
-    }
-
-    // Parse frontmatter and content from the uploaded markdown file
-    const fileContent = await fs.readFile(req.file.path, 'utf8');
-    let frontmatter = {};
-    let content = fileContent;
-    
+app.post(
+  '/api/upload-markdown',
+  uploadMarkdown.single('markdown'),
+  handleMulterError,
+  async (req, res) => {
     try {
-      const parsed = matter(fileContent);
-      frontmatter = parsed.data;
-      content = parsed.content;
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      // Ensure userId is provided
+      const userId = req.body.userId;
+      if (!userId) {
+        return res.status(400).json({ error: 'User ID is required' });
+      }
+
+      // Parse frontmatter and content from the uploaded markdown file
+      const fileContent = await fs.readFile(req.file.path, 'utf8');
+      let frontmatter = {};
+      let content = fileContent;
+
+      try {
+        const parsed = matter(fileContent);
+        frontmatter = parsed.data;
+        content = parsed.content;
+      } catch (error) {
+        console.warn('Error parsing frontmatter:', error);
+      }
+
+      // Extract metadata from frontmatter
+      const title = frontmatter.title || req.file.originalname.replace(/\.md$|\.markdown$/i, '');
+      const categories = Array.isArray(frontmatter.categories) ? frontmatter.categories : [];
+      const tags = Array.isArray(frontmatter.tags) ? frontmatter.tags : [];
+      const status = frontmatter.status || req.body.status || 'Draft';
+
+      // Generate slug from title
+      let slug = generateSlug(title);
+      const slugExists = await pool.query('SELECT slug FROM Posts WHERE slug = $1', [slug]);
+      if (slugExists.rows.length > 0) {
+        slug = `${slug}-${Date.now().toString().slice(-6)}`;
+      }
+
+      // Handle categories: Map frontmatter categories to CategoryID and SubCategoryID
+      let categoryId = null;
+      let subCategoryId = null;
+
+      if (categories.length > 0) {
+        // Assume the first category is the main category, second is subcategory
+        const mainCategoryName = categories[0];
+        const subCategoryName = categories[1] || null;
+
+        // Find or create main category
+        if (mainCategoryName) {
+          let categoryResult = await pool.query(
+            'SELECT CategoryID FROM Categories WHERE CategoryName = $1',
+            [mainCategoryName]
+          );
+          if (categoryResult.rows.length === 0) {
+            // Create new category if not exists
+            categoryResult = await pool.query(
+              'INSERT INTO Categories (CategoryName) VALUES ($1) RETURNING CategoryID',
+              [mainCategoryName]
+            );
+          }
+          categoryId = categoryResult.rows[0].CategoryID;
+        }
+
+        // Find or create subcategory
+        if (subCategoryName && categoryId) {
+          let subCategoryResult = await pool.query(
+            'SELECT SubCategoryID FROM SubCategories WHERE SubCategoryName = $1 AND CategoryID = $2',
+            [subCategoryName, categoryId]
+          );
+          if (subCategoryResult.rows.length === 0) {
+            // Create new subcategory if not exists
+            subCategoryResult = await pool.query(
+              'INSERT INTO SubCategories (SubCategoryName, CategoryID) VALUES ($1, $2) RETURNING SubCategoryID',
+              [subCategoryName, categoryId]
+            );
+          }
+          subCategoryId = subCategoryResult.rows[0].SubCategoryID;
+        }
+      }
+
+      // Save post to database
+      const postQuery = `
+        INSERT INTO Posts (
+          UserID,
+          CategoryID,
+          SubCategoryID,
+          Title,
+          Content,
+          CreatedAtDate,
+          Status,
+          slug
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING PostID
+      `;
+      const postValues = [
+        userId,
+        categoryId,
+        subCategoryId,
+        title,
+        content,
+        new Date(),
+        status,
+        slug,
+      ];
+
+      const postResult = await pool.query(postQuery, postValues);
+      const postId = postResult.rows[0].PostID;
+
+      // Handle tags: Create new tags if they don't exist and link to post
+      const tagIds = [];
+      for (const tagName of tags) {
+        if (!tagName || typeof tagName !== 'string') continue;
+
+        // Find or create tag
+        let tagResult = await pool.query('SELECT TagID FROM Tags WHERE TagName = $1', [tagName]);
+        if (tagResult.rows.length === 0) {
+          // Create new tag
+          tagResult = await pool.query(
+            'INSERT INTO Tags (TagName) VALUES ($1) RETURNING TagID',
+            [tagName]
+          );
+        }
+        const tagId = tagResult.rows[0].TagID;
+        tagIds.push(tagId);
+
+        // Link tag to post in PostTags table
+        await pool.query(
+          'INSERT INTO PostTags (PostID, TagID) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+          [postId, tagId]
+        );
+      }
+
+      // Store file metadata (optional)
+      const fileMetadata = {
+        postId,
+        filename: req.file.filename,
+        filepath: `/posts/${req.file.filename}`,
+        originalName: req.file.originalname,
+        uploadDate: new Date(),
+        frontmatter: JSON.stringify(frontmatter),
+      };
+
+      // Optionally store file metadata in a separate table
+      // await pool.query('INSERT INTO post_files (...) VALUES (...)', [...]);
+
+      // Return response with full frontmatter and processed tags
+      res.status(201).json({
+        success: true,
+        message: 'Post created successfully from markdown file',
+        postId,
+        title,
+        slug,
+        filepath: `/posts/${req.file.filename}`,
+        categoryId,
+        subCategoryId,
+        status,
+        frontmatter,
+        tags: tags.map((tag, index) => ({
+          tagName: tag,
+          tagId: tagIds[index] || null,
+        })),
+      });
     } catch (error) {
-      console.warn('Error parsing frontmatter:', error);
+      console.error('Error creating post from markdown file:', error);
+      res.status(500).json({ error: 'Error uploading file and creating post', details: error.message });
     }
-
-    // Extract title and other metadata from frontmatter
-    const title = frontmatter.title || req.file.originalname.replace(/\.md$|\.markdown$/i, '');
-    const categoryId = frontmatter.categoryId || req.body.categoryId || null;
-    const subCategoryId = frontmatter.subCategoryId || req.body.subCategoryId || null;
-    const status = frontmatter.status || req.body.status || 'Draft';
-
-    // Generate slug from title
-    let slug = generateSlug(title);
-    
-    // Check if slug already exists and make it unique if needed
-    const slugExists = await pool.query('SELECT slug FROM Posts WHERE slug = $1', [slug]);
-    if (slugExists.rows.length > 0) {
-      slug = `${slug}-${Date.now().toString().slice(-6)}`;
-    }
-
-    // Save post to database
-    const query = `
-      INSERT INTO Posts (
-        UserID,
-        CategoryID,
-        SubCategoryID,
-        Title,
-        Content,
-        CreatedAtDate,
-        Status,
-        slug
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING PostID
-    `;
-    
-    const values = [
-      userId,
-      categoryId,
-      subCategoryId,
-      title,
-      content,
-      new Date(),
-      status,
-      slug
-    ];
-
-    const result = await pool.query(query, values);
-    const postId = result.rows[0].PostID;
-
-    // Store file information separately if needed (optional)
-    // This helps track the actual file locations
-    const fileMetadata = {
-      postId,
-      filename: req.file.filename,
-      filepath: req.file.path,
-      originalName: req.file.originalname,
-      uploadDate: new Date(),
-      frontmatter: JSON.stringify(frontmatter)
-    };
-
-    // You might want to store this in a separate table
-    // await pool.query('INSERT INTO post_files (...) VALUES (...)', [...]);
-
-    res.status(201).json({
-      success: true,
-      message: 'Post created successfully from markdown file',
-      postId,
-      title,
-      slug,
-      filepath: `/posts/${req.file.filename}`,
-      categoryId,
-      subCategoryId,
-      status,
-      frontmatter
-    });
-  } catch (error) {
-    console.error('Error creating post from markdown file:', error);
-    res.status(500).json({ error: 'Error uploading file and creating post', details: error.message });
   }
-});
+);
 //3) API liên quan đến quản lý tag
 // Tạo một tag mới
 app.post('/api/tags', async (req, res) => {
@@ -1592,10 +1730,22 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Create session
-    req.session.userId = user.userid;
-    req.session.username = user.username;
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: user.userid, username: user.username, email: user.email },
+      'your_jwt_secret_key', // Replace with your secret key (store in environment variable)
+      { expiresIn: '1h' } // Token expires in 1 hour
+    );
 
+    // Set the JWT token in an HTTP-only cookie
+    res.cookie('authToken', token, {
+      httpOnly: true, // Prevents client-side JavaScript from accessing the cookie
+      secure: process.env.NODE_ENV === 'production', // Use secure cookies in production (requires HTTPS)
+      maxAge: 3600000, // 1 hour in milliseconds (matches token expiration)
+      sameSite: 'strict' // Protects against CSRF attacks
+    });
+
+    // Send success response
     res.json({
       message: 'Login successful',
       user: { id: user.userid, username: user.username, email: user.email },
@@ -1608,14 +1758,8 @@ app.post('/api/login', async (req, res) => {
 
 // API: Logout
 app.post('/api/logout', (req, res) => {
-  req.session.destroy((err) => {
-    if (err) {
-      console.error('Error during logout:', err);
-      return res.status(500).json({ error: 'Failed to log out' });
-    }
-    res.clearCookie('connect.sid'); // Clear session cookie
-    res.json({ message: 'Logout successful' });
-  });
+  res.clearCookie('authToken'); // Clear the authToken cookie
+  res.json({ message: 'Logout successful' });
 });
 
 // API: Check session (to verify if user is logged in)
