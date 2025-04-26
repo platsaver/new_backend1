@@ -55,9 +55,6 @@ CREATE TABLE Posts (
     FOREIGN KEY (SubCategoryID) REFERENCES SubCategories(SubCategoryID) ON DELETE SET NULL
 );
 ALTER TABLE Posts ADD COLUMN IF NOT EXISTS slug VARCHAR(255) UNIQUE;
-update Posts set slug='article1' where postid='1'
-select * from posts
-select * from users
 ALTER TABLE Posts
 ADD Featured BOOLEAN DEFAULT FALSE;
 CREATE TABLE Comments (
@@ -73,15 +70,7 @@ CREATE TABLE Comments (
 ALTER TABLE Comments ADD COLUMN IF NOT EXISTS Status VARCHAR(20) DEFAULT 'pending';
 ALTER TABLE Comments ADD COLUMN IF NOT EXISTS ModeratorID INT REFERENCES Users(UserID);
 ALTER TABLE Comments ADD COLUMN IF NOT EXISTS ModerationNote TEXT;
-SELECT column_name, data_type, character_maximum_length
-FROM information_schema.columns
-WHERE table_name = 'comments' AND column_name = 'status';
-SELECT c.*, u.UserName, p.Title as PostTitle
-FROM Comments c
-LEFT JOIN Users u ON c.UserID = u.UserID
-LEFT JOIN Posts p ON c.PostID = p.PostID
-WHERE (LOWER(c.Status) = 'pending' OR c.Status IS NULL)
-ORDER BY c.CreatedAtDate DESC;
+
 CREATE TABLE PostTags (
     PostID INT NOT NULL,
     TagID INT NOT NULL,
