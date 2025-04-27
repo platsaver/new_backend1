@@ -549,7 +549,8 @@ LIMIT 4;
 
 select * from users;
 select * from posts order by createatdate DESC;
-
+delete from categories
+select * from categories
 SELECT
         p.PostID,
         p.UserID,

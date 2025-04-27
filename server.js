@@ -189,7 +189,7 @@ const authenticateToken = (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, '8e56036c70a41b4e6202c3fd4c497d6ec3736f37d19bd07e720c064126962878'); // Verify the token
+    const decoded = jwt.verify(token, 'bdaa0bdba4d98131e7c699e78a8c0104dcd767d3789f0adbdd7cc580eff4fc9d'); // Verify the token
     req.user = decoded; // Attach the decoded user data to the request
     next();
   } catch (err) {
@@ -1786,12 +1786,12 @@ app.delete('/api/comments/:commentId', async (req, res) => {
 //7) API liên quan đến quản lý users
 // API: Login
 app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body;
+  const { username, password } = req.body;
   try {
     // Check if user exists
-    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
     if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      return res.status(401).json({ error: 'Invalid username or password' });
     }
 
     const user = result.rows[0];
@@ -1799,14 +1799,13 @@ app.post('/api/login', async (req, res) => {
     // Verify password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      return res.status(401).json({ error: 'Invalid username or password' });
     }
 
     // Generate JWT token
     const token = jwt.sign(
       { userId: user.userid, username: user.username, email: user.email },
       'bdaa0bdba4d98131e7c699e78a8c0104dcd767d3789f0adbdd7cc580eff4fc9d', // Replace with your secret key (store in environment variable)
-      { expiresIn: '1h' } // Token expires in 1 hour
     );
 
     // Set the JWT token in an HTTP-only cookie
@@ -1834,16 +1833,17 @@ app.post('/api/logout', (req, res) => {
   res.json({ message: 'Logout successful' });
 });
 
-// API: Check session (to verify if user is logged in)
-app.get('/api/session', (req, res) => {
-  if (req.session.userId) {
-    res.json({
-      isAuthenticated: true,
-      user: { id: req.session.userId, username: req.session.username },
-    });
-  } else {
-    res.json({ isAuthenticated: false });
-  }
+// API: Check authentication status
+app.get('/api/check-auth', authenticateToken, (req, res) => {
+  // If the middleware passes, the token is valid, and req.user contains the decoded user data
+  res.json({
+    isAuthenticated: true,
+    user: {
+      id: req.user.userId,
+      username: req.user.username,
+      email: req.user.email,
+    },
+  });
 });
 
 // Register API (Send OTP to email)
