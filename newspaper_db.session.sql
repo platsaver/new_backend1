@@ -86,7 +86,7 @@ CREATE TABLE Tags (
 /*1 post có thể sở hữu nhiều media, nhưng 1 media chỉ có thể thuộc về 1 post*/
 CREATE TABLE Media (
     MediaID SERIAL PRIMARY KEY,
-    PostID INT NOT NULL,
+    PostID INT NULL,
     MediaURL TEXT NOT NULL,
     MediaType VARCHAR(50) NOT NULL,
     CreatedAtDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

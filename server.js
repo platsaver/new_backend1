@@ -1257,28 +1257,13 @@ app.delete('/api/posts/:postId/tags', async (req, res) => {
 
 //3) API liên quan đến quản lý media
 
-// Tải ảnh lên cho posts
-app.post('/api/posts/:postId/media', upload.single('image'), async (req, res) => {
-  const { postId } = req.params;
-
-  const postIdNum = Number(postId);
-  if (isNaN(postIdNum) || postIdNum <= 0) {
-      return res.status(400).json({ error: 'postId must be a valid positive number' });
-  }
-
+// Tải ảnh lên
+app.post('/api/media', upload.single('image'), async (req, res) => {
   if (!req.file) {
       return res.status(400).json({ error: 'No image file provided' });
   }
 
   try {
-      // Kiểm tra xem PostID có tồn tại
-      const postCheck = await pool.query('SELECT 1 FROM Posts WHERE PostID = $1', [postIdNum]);
-      if (postCheck.rowCount === 0) {
-          // Xóa tệp đã upload nếu post không tồn tại
-          await fs.unlink(req.file.path).catch(err => console.error(`Error deleting file: ${err}`));
-          return res.status(404).json({ error: 'Post not found' });
-      }
-
       // Xác định loại MIME của tệp
       const fileType = await fileTypeFromFile(req.file.path);
       const mediaType = fileType ? fileType.mime : req.file.mimetype;
@@ -1288,10 +1273,10 @@ app.post('/api/posts/:postId/media', upload.single('image'), async (req, res) =>
 
       // Lưu metadata vào bảng Media
       const result = await pool.query(
-          `INSERT INTO Media (PostID, MediaURL, MediaType) 
-           VALUES ($1, $2, $3) 
-           RETURNING MediaID, PostID, MediaURL, MediaType, CreatedAtDate`,
-          [postIdNum, mediaUrl, mediaType]
+          `INSERT INTO Media (MediaURL, MediaType) 
+           VALUES ($1, $2) 
+           RETURNING MediaID, MediaURL, MediaType, CreatedAtDate`,
+          [mediaUrl, mediaType]
       );
 
       res.status(201).json({
