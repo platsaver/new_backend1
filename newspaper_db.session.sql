@@ -545,3 +545,29 @@ FROM Posts p
 WHERE p.CategoryID = 4 AND p.Featured = true AND p.Status = 'Published'
 ORDER BY p.CreatedAtDate DESC
 LIMIT 4;
+
+
+select * from users;
+select * from posts order by createatdate DESC;
+
+SELECT
+        p.PostID,
+        p.UserID,
+        p.Title,
+        p.Content,
+        p.CreatedAtDate,
+        p.Status,
+        u.UserName as AuthorName,
+        (SELECT m.MediaURL FROM Media m
+         WHERE m.PostID = p.PostID AND m.MediaType LIKE 'image%'
+         ORDER BY m.CreatedAtDate ASC LIMIT 1) as imageUrl,
+        CONCAT('./posts/post', p.PostID, '.html') as link
+      FROM
+        Posts p
+      LEFT JOIN
+        Users u ON p.UserID = u.UserID
+      WHERE
+        p.Status = 'Published'
+      ORDER BY
+        p.CreatedAtDate DESC
+      LIMIT 5

@@ -198,6 +198,25 @@ const authenticateToken = (req, res, next) => {
   }
 };
 
+//Calculating relative time
+const getRelativeTime = (date) => {
+  const now = new Date();
+  const postDate = new Date(date);
+  const diffInMinutes = Math.floor((now - postDate) / (1000 * 60));
+  
+  if (diffInMinutes < 1) {
+    return 'Vừa xong';
+  } else if (diffInMinutes < 60) {
+    return `${diffInMinutes}' trước`;
+  } else if (diffInMinutes < 24 * 60) {
+    const hours = Math.floor(diffInMinutes / 60);
+    return `${hours}h trước`;
+  } else {
+    const days = Math.floor(diffInMinutes / (60 * 24));
+    return `${days} ngày trước`;
+  }
+};
+
 // Example protected route
 app.get('/api/protected', authenticateToken, (req, res) => {
   res.json({ message: 'This is a protected route', user: req.user });
@@ -457,6 +476,59 @@ app.get('/api/featured-posts/category/:categoryId', async (req, res) => {
   } catch (error) {
     console.error('Error fetching featured posts by category:', error);
     res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+// API endpoint lấy 5 bài viết mới nhất 
+// API endpoint lấy 5 bài viết mới nhất với media
+app.get('/api/latest-posts', async (req, res) => {
+  try {
+    // Set the base URL for assets
+    const baseUrl = 'http://localhost:3000';
+    
+    // Get posts from database with media in a single query using subquery
+    const result = await pool.query(`
+      SELECT
+        p.PostID,
+        p.UserID,
+        p.Title,
+        p.Content,
+        p.CreatedAtDate,
+        p.Status,
+        u.UserName as AuthorName,
+        (SELECT m.MediaURL FROM Media m
+         WHERE m.PostID = p.PostID AND m.MediaType LIKE 'image%'
+         ORDER BY m.CreatedAtDate ASC LIMIT 1) as imageUrl,
+        CONCAT('./posts/post', p.PostID, '.html') as link
+      FROM
+        Posts p
+      LEFT JOIN
+        Users u ON p.UserID = u.UserID
+      WHERE
+        p.Status = 'Published'
+      ORDER BY
+        p.CreatedAtDate DESC
+      LIMIT 5
+    `);
+    
+    // Transform the data to match the format expected by the frontend
+    const posts = result.rows.map((post, index) => ({
+      postId: post.postid,
+      timestamp: getRelativeTime(post.createdatdate),
+      title: post.title,
+      excerpt: post.content.substring(0, 150) + (post.content.length > 150 ? '...' : ''),
+      author: post.authorname || 'AUTHOR',
+      // Prepend base URL to image path if the post has an image, otherwise use placeholder
+      imageUrl: post.imageurl 
+        ? `${baseUrl}/${post.imageurl.replace(/^\/+/, '')}` // Remove leading slashes if any
+        : `https://placehold.co/220x132?text=Post${post.postid}`,
+      link: `${baseUrl}${post.link.startsWith('./') ? post.link.substring(1) : post.link}`, // Format link with base URL
+      isLast: index === result.rows.length - 1 // Mark the last item
+    }));
+    
+    res.json(posts);
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 // Lấy 5 bài viết được tạo gần đây nhất theo một subcategory
@@ -1733,7 +1805,7 @@ app.post('/api/login', async (req, res) => {
     // Generate JWT token
     const token = jwt.sign(
       { userId: user.userid, username: user.username, email: user.email },
-      'your_jwt_secret_key', // Replace with your secret key (store in environment variable)
+      'bdaa0bdba4d98131e7c699e78a8c0104dcd767d3789f0adbdd7cc580eff4fc9d', // Replace with your secret key (store in environment variable)
       { expiresIn: '1h' } // Token expires in 1 hour
     );
 
