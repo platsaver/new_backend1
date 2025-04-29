@@ -312,7 +312,7 @@ app.get('/posts/published', async (req, res) => {
 //Cập nhật bài viết
 app.put('/posts/:id', async (req, res) => {
   const { id } = req.params;
-  const { userid, categoryId, subCategoryId, title, content, status, featured } = req.body;
+  const { userid, categoryid, subcategoryid, title, content, status, featured } = req.body;
 
   // Validate PostID
   if (!id || isNaN(parseInt(id))) {
@@ -331,16 +331,16 @@ app.put('/posts/:id', async (req, res) => {
   }
 
   // Check CategoryID (if provided)
-  if (categoryId) {
-    const categoryCheck = await pool.query('SELECT 1 FROM Categories WHERE CategoryID = $1', [categoryId]);
+  if (categoryid) {
+    const categoryCheck = await pool.query('SELECT 1 FROM Categories WHERE CategoryID = $1', [categoryid]);
     if (categoryCheck.rowCount === 0) {
       return res.status(400).json({ error: 'Invalid CategoryID: Category does not exist' });
     }
   }
 
   // Check SubCategoryID (if provided)
-  if (subCategoryId) {
-    const subCategoryCheck = await pool.query('SELECT 1 FROM SubCategories WHERE SubCategoryID = $1', [subCategoryId]);
+  if (subcategoryid) {
+    const subCategoryCheck = await pool.query('SELECT 1 FROM SubCategories WHERE SubCategoryID = $1', [subcategoryid]);
     if (subCategoryCheck.rowCount === 0) {
       return res.status(400).json({ error: 'Invalid SubCategoryID: SubCategory does not exist' });
     }
@@ -351,8 +351,8 @@ app.put('/posts/:id', async (req, res) => {
       `UPDATE Posts
        SET UserID = $1, CategoryID = $2, SubCategoryID = $3, Title = $4, Content = $5, Status = $6, Featured = $7, UpdatedAtDate = CURRENT_TIMESTAMP
        WHERE PostID = $8
-       RETURNING PostID AS id, UserID AS userid, CategoryID AS categoryId, SubCategoryID AS subCategoryId, Title AS title, Content AS content, Status AS status, Featured AS featured, CreatedAtDate AS createdAtDate, UpdatedAtDate AS updatedAtDate`,
-      [userid, categoryId || null, subCategoryId || null, title, content, status || 'Draft', featured ?? null, id]
+       RETURNING PostID AS id, UserID AS userid, CategoryID AS categoryid, SubCategoryID AS subcategoryid, Title AS title, Content AS content, Status AS status, Featured AS featured, CreatedAtDate AS createdatdate, UpdatedAtDate AS updatedatdate`,
+      [userid, categoryid || null, subcategoryid || null, title, content, status || 'Draft', featured, id]
     );
 
     if (result.rows.length === 0) {
@@ -424,7 +424,7 @@ app.get('/api/featured-posts', async (req, res) => {
         timeZone: 'Asia/Ho_Chi_Minh',
       }) + ' (GMT+7)',
       excerpt: post.excerpt,
-      link: `./posts/${post.postId}.html`,
+      link: `./posts/post${post.postid}.html`,
       // Thêm tiền tố /uploads/ nếu MediaURL chỉ chứa tên file
       imageUrl: post.imageurl ? `${post.imageurl}` : null,
     }));
