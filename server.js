@@ -42,7 +42,7 @@ const transporter = nodemailer.createTransport({
       pass: 'ehporfkkzfyxivao', // Use app-specific password for Gmail
   },
 });
-// Temporary OTP storage (in-memory, replace with Redis in production)
+// Temporary OTP storage
 const otpStorage = {};
 
 // Generate 6-digit OTP
@@ -118,16 +118,6 @@ const uploadMarkdown = multer({
 
 // Serve posts directory statically
 app.use('/posts', express.static(path.join(__dirname, 'public/posts')));
-
-// Generate slug from title
-function generateSlug(title) {
-  return title
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, '') // Remove special characters
-    .replace(/\s+/g, '-') // Replace spaces with hyphens
-    .replace(/-+/g, '-') // Replace multiple hyphens with single hyphen
-    .trim(); // Remove whitespace from both ends
-}
 
 // Middleware xử lý lỗi Multer
 const handleMulterError = (err, req, res, next) => {
@@ -217,7 +207,6 @@ const getRelativeTime = (date) => {
   }
 };
 
-// Example protected route
 app.get('/api/protected', authenticateToken, (req, res) => {
   res.json({ message: 'This is a protected route', user: req.user });
 });
@@ -411,7 +400,6 @@ app.get('/api/featured-posts', async (req, res) => {
         p.Title,
         LEFT(p.Content, 200) AS Excerpt,
         m.MediaURL AS ImageURL,
-        p.slug,
         p.CreatedAtDate,
         u.UserName AS Author,
         c.CategoryName,
@@ -442,7 +430,7 @@ app.get('/api/featured-posts', async (req, res) => {
         timeZone: 'Asia/Ho_Chi_Minh',
       }) + ' (GMT+7)',
       excerpt: post.excerpt,
-      link: `./posts/${post.slug}.html`,
+      link: `./posts/${post.postId}.html`,
       // Thêm tiền tố /uploads/ nếu MediaURL chỉ chứa tên file
       imageUrl: post.imageurl ? `${post.imageurl}` : null,
     }));
