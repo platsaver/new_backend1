@@ -1,28 +1,37 @@
 {
-  "name": "new_backend",
-  "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "dependencies": {
     "bcrypt": "^5.1.1",
     "connect-pg-simple": "^10.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
-    "crypto": "^1.0.1",
     "express": "^5.1.0",
     "express-session": "^1.18.1",
-    "file-type": "^20.4.1",
+    "file-type": "^20.5.0",
     "gray-matter": "^4.0.3",
     "jsonwebtoken": "^9.0.2",
-    "marked": "^15.0.8",
+    "marked": "^15.0.11",
     "multer": "^1.4.5-lts.2",
     "nodemailer": "^6.10.1",
-    "pg": "^8.14.1"
-  }
+    "path": "^0.12.7",
+    "pg": "^8.15.6"
+  },
+  "name": "new_backend1",
+  "version": "1.0.0",
+  "description": "- Mutler+fs+path for media uploading and management - Express and pg lib for Postgresql + Nodejs  - Cors to make back-end and fron-end can communicate with each other - Bcrypt for encrypt password when performing register or login - Marked and gray-matter for markdown importing",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/platsaver/new_backend1.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/platsaver/new_backend1/issues"
+  },
+  "homepage": "https://github.com/platsaver/new_backend1#readme"
 }

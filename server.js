@@ -4,7 +4,7 @@ const cors = require('cors');
 const fs = require('fs').promises;
 const path = require('path');
 const multer = require('multer');
-const { fileTypeFromFile } = require('file-type');
+const { fileTypeFromBuffer } = require('file-type');
 const nodemailer = require('nodemailer');
 const bcrypt = require('bcrypt');
 const marked = require('marked');
@@ -1264,14 +1264,26 @@ app.post('/api/media', upload.single('image'), async (req, res) => {
   }
 
   try {
-      // Xác định loại MIME của tệp
-      const fileType = await fileTypeFromFile(req.file.path);
+      console.log('File path:', req.file.path);
+      console.log('fileTypeFromBuffer:', typeof fileTypeFromBuffer);
+
+      // Check if file exists
+      const exists = await fs.access(req.file.path).then(() => true).catch(() => false);
+      if (!exists) {
+          throw new Error('Uploaded file not found');
+      }
+
+      // Read file into buffer
+      const buffer = await fs.readFile(req.file.path);
+
+      // Determine MIME type
+      const fileType = await fileTypeFromBuffer(buffer);
       const mediaType = fileType ? fileType.mime : req.file.mimetype;
 
-      // Tạo MediaURL (đường dẫn tương đối)
+      // Create MediaURL (relative path)
       const mediaUrl = `/uploads/${req.file.filename}`;
 
-      // Lưu metadata vào bảng Media
+      // Save metadata to Media table
       const result = await pool.query(
           `INSERT INTO Media (MediaURL, MediaType) 
            VALUES ($1, $2) 
@@ -1284,9 +1296,9 @@ app.post('/api/media', upload.single('image'), async (req, res) => {
           media: result.rows[0]
       });
   } catch (error) {
-      // Xóa tệp đã upload nếu có lỗi
+      // Delete uploaded file if error occurs
       await fs.unlink(req.file.path).catch(err => console.error(`Error deleting file: ${err}`));
-      console.error(error);
+      console.error('Error:', error);
       res.status(500).json({ error: 'Internal server error' });
   }
 });
