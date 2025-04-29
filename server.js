@@ -1499,38 +1499,26 @@ app.post('/api/subcategories/:subCategoryId/banner', upload.single('banner'), ha
   }
 });
 
-// Liệt kê tất cả categories và subcategories
+// Liệt kê tất cả categories
 app.get('/api/categories', async (req, res) => {
   try {
-      const categoriesResult = await pool.query(`
-          SELECT 
-              c.CategoryID,
-              c.CategoryName,
-              c.BannerURL,
-              COALESCE(
-                  ARRAY_AGG(
-                      JSON_BUILD_OBJECT(
-                          'SubCategoryID', sc.SubCategoryID,
-                          'CategoryID', sc.CategoryID,
-                          'SubCategoryName', sc.SubCategoryName,
-                          'BannerURL', sc.BannerURL
-                      )
-                  ) FILTER (WHERE sc.SubCategoryID IS NOT NULL),
-                  '{}'
-              ) as subCategories
-          FROM Categories c
-          LEFT JOIN SubCategories sc ON c.CategoryID = sc.CategoryID
-          GROUP BY c.CategoryID, c.CategoryName, c.BannerURL
-          ORDER BY c.CategoryID
-      `);
-
-      res.status(200).json({
-          message: 'Categories and subcategories retrieved successfully',
-          categories: categoriesResult.rows
-      });
+    // Query to get all categories
+    const categoriesResult = await pool.query(`
+      SELECT
+        CategoryID,
+        CategoryName,
+        BannerURL
+      FROM Categories
+      ORDER BY CategoryID
+    `);
+    
+    res.status(200).json({
+      message: 'All categories retrieved successfully',
+      categories: categoriesResult.rows
+    });
   } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Internal server error' });
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
