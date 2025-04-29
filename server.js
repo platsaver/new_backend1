@@ -278,6 +278,7 @@ app.post('/posts', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
 //Liệt kê tất cả các bài viết hiện tại có trong hệ thống 
 app.get('/posts', async (req, res) => {
   try {
@@ -307,47 +308,39 @@ app.get('/posts/published', async (req, res) => {
     });
   }
 });
-//Đọc chi tiết của một bài viết theo id của nó
-app.get('/posts/:id', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await pool.query('SELECT * FROM Posts WHERE PostID = $1', [id]);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Post not found' });
-    }
-    res.status(200).json(result.rows[0]);
-  } catch (error) {
-    console.error('Error fetching post:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+
 //Cập nhật bài viết
 app.put('/posts/:id', async (req, res) => {
   const { id } = req.params;
-  const { userid, categoryid, subcategoryid, title, content, status, featured } = req.body;
+  const { userid, categoryId, subCategoryId, title, content, status, featured } = req.body;
 
-  // Validation cơ bản
+  // Validate PostID
+  if (!id || isNaN(parseInt(id))) {
+    return res.status(400).json({ error: 'Invalid Post ID' });
+  }
+
+  // Basic validation
   if (!userid || !title || !content) {
     return res.status(400).json({ error: 'UserID, Title, and Content are required' });
   }
 
-  // Kiểm tra tồn tại của UserID
+  // Check if UserID exists
   const userCheck = await pool.query('SELECT 1 FROM Users WHERE UserID = $1', [userid]);
   if (userCheck.rowCount === 0) {
     return res.status(400).json({ error: 'Invalid UserID: User does not exist' });
   }
 
-  // Kiểm tra CategoryID (nếu có)
-  if (categoryid) {
-    const categoryCheck = await pool.query('SELECT 1 FROM Categories WHERE CategoryID = $1', [categoryid]);
+  // Check CategoryID (if provided)
+  if (categoryId) {
+    const categoryCheck = await pool.query('SELECT 1 FROM Categories WHERE CategoryID = $1', [categoryId]);
     if (categoryCheck.rowCount === 0) {
       return res.status(400).json({ error: 'Invalid CategoryID: Category does not exist' });
     }
   }
 
-  // Kiểm tra SubCategoryID (nếu có)
-  if (subcategoryid) {
-    const subCategoryCheck = await pool.query('SELECT 1 FROM SubCategories WHERE SubCategoryID = $1', [subcategoryid]);
+  // Check SubCategoryID (if provided)
+  if (subCategoryId) {
+    const subCategoryCheck = await pool.query('SELECT 1 FROM SubCategories WHERE SubCategoryID = $1', [subCategoryId]);
     if (subCategoryCheck.rowCount === 0) {
       return res.status(400).json({ error: 'Invalid SubCategoryID: SubCategory does not exist' });
     }
@@ -358,8 +351,8 @@ app.put('/posts/:id', async (req, res) => {
       `UPDATE Posts
        SET UserID = $1, CategoryID = $2, SubCategoryID = $3, Title = $4, Content = $5, Status = $6, Featured = $7, UpdatedAtDate = CURRENT_TIMESTAMP
        WHERE PostID = $8
-       RETURNING *`,
-      [userid, categoryid || null, subcategoryid || null, title, content, status || 'Draft', featured ?? null, id]
+       RETURNING PostID AS id, UserID AS userid, CategoryID AS categoryId, SubCategoryID AS subCategoryId, Title AS title, Content AS content, Status AS status, Featured AS featured, CreatedAtDate AS createdAtDate, UpdatedAtDate AS updatedAtDate`,
+      [userid, categoryId || null, subCategoryId || null, title, content, status || 'Draft', featured ?? null, id]
     );
 
     if (result.rows.length === 0) {
@@ -368,13 +361,13 @@ app.put('/posts/:id', async (req, res) => {
 
     res.status(200).json(result.rows[0]);
   } catch (error) {
-    console.error('Error updating post:', error);
-    if (error.code === '23503') { // Lỗi khóa ngoại
+    console.error('Error updating post:', error.message, error.stack);
+    if (error.code === '23503') {
       return res.status(400).json({ error: 'Foreign key constraint violation' });
-    } else if (error.code === '23502') { // Lỗi NOT NULL
+    } else if (error.code === '23502') {
       return res.status(400).json({ error: 'Required field is missing' });
     }
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 });
 //Xóa bài viết
@@ -391,6 +384,7 @@ app.delete('/posts/:id', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
 // Lấy 5 bài viết nổi bật nhất được tạo gần đây
 app.get('/api/featured-posts', async (req, res) => {
   try {
@@ -441,8 +435,8 @@ app.get('/api/featured-posts', async (req, res) => {
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
+
 // lấy 5 bài viết nổi bật nhất của một category 
-// Modified API endpoint to match the format needed by CategorySection
 app.get('/api/featured-posts/category/:categoryId', async (req, res) => {
   try {
     const categoryId = req.params.categoryId;
@@ -466,14 +460,12 @@ app.get('/api/featured-posts/category/:categoryId', async (req, res) => {
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
-// API endpoint lấy 5 bài viết mới nhất 
-// API endpoint lấy 5 bài viết mới nhất với media
+
+// Lấy 5 bài viết mới nhất 
 app.get('/api/latest-posts', async (req, res) => {
   try {
-    // Set the base URL for assets
     const baseUrl = 'http://localhost:3000';
     
-    // Get posts from database with media in a single query using subquery
     const result = await pool.query(`
       SELECT
         p.PostID,
@@ -498,14 +490,12 @@ app.get('/api/latest-posts', async (req, res) => {
       LIMIT 5
     `);
     
-    // Transform the data to match the format expected by the frontend
     const posts = result.rows.map((post, index) => ({
       postId: post.postid,
       timestamp: getRelativeTime(post.createdatdate),
       title: post.title,
       excerpt: post.content.substring(0, 150) + (post.content.length > 150 ? '...' : ''),
       author: post.authorname || 'AUTHOR',
-      // Prepend base URL to image path if the post has an image, otherwise use placeholder
       imageUrl: post.imageurl 
         ? `${baseUrl}/${post.imageurl.replace(/^\/+/, '')}` // Remove leading slashes if any
         : `https://placehold.co/220x132?text=Post${post.postid}`,
@@ -519,6 +509,42 @@ app.get('/api/latest-posts', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+//Lấy 5 bài viết được tạo gần đây nhất ở trạng thái Published (cho dashboard)
+app.get('/api/dashboard-featured-posts', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        p.PostID,
+        p.Title,
+        p.CreatedAtDate,
+        COALESCE(u.UserName, 'Unknown') AS Author
+      FROM
+        Posts p
+      LEFT JOIN
+        Users u ON p.UserID = u.UserID
+      WHERE
+        p.Status = 'Published'
+      ORDER BY
+        p.CreatedAtDate DESC
+      LIMIT 5
+    `);
+
+    const posts = result.rows.map(post => ({
+      PostID: post.postid,
+      Title: post.title,
+      Author: post.author,
+      CreatedAtDate: post.createdatdate.toISOString(),
+    }));
+
+    res.status(200).json(posts);
+  } catch (error) {
+    console.error('Error fetching featured posts:', error.message, error.stack);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
 // Lấy 5 bài viết được tạo gần đây nhất theo một subcategory
 app.get('/api/posts/subcategory/:subcategoryId/recent', async (req, res) => {
   try {
@@ -1600,6 +1626,216 @@ app.delete('/api/categories/:id', async (req, res) => {
   } catch (err) {
     console.error('Error deleting category:', err);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Liệt kê tất cả các sub-categories
+app.get('/api/subcategories', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT sc.*, c.CategoryName 
+      FROM SubCategories sc
+      LEFT JOIN Categories c ON sc.CategoryID = c.CategoryID
+      ORDER BY sc.SubCategoryID
+    `);
+    
+    res.status(200).json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Lỗi khi lấy danh sách sub-categories:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Đã xảy ra lỗi khi lấy danh sách sub-categories',
+      error: error.message
+    });
+  }
+});
+
+// Tạo sub-categories
+app.post('/api/subcategories', async (req, res) => {
+  try {
+    const { CategoryID, SubCategoryName, BannerURL } = req.body;
+    
+    if (!SubCategoryName) {
+      return res.status(400).json({
+        success: false,
+        message: 'SubCategoryName là trường bắt buộc'
+      });
+    }
+    
+    // Kiểm tra xem CategoryID có tồn tại không (nếu được cung cấp)
+    if (CategoryID) {
+      const categoryExists = await pool.query('SELECT 1 FROM Categories WHERE CategoryID = $1', [CategoryID]);
+      if (categoryExists.rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'CategoryID không tồn tại'
+        });
+      }
+    }
+    
+    // Kiểm tra xem SubCategoryName đã tồn tại chưa trong CategoryID này
+    const duplicateCheck = await pool.query(
+      'SELECT 1 FROM SubCategories WHERE CategoryID = $1 AND SubCategoryName = $2',
+      [CategoryID, SubCategoryName]
+    );
+    
+    if (duplicateCheck.rows.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'SubCategoryName đã tồn tại trong Category này'
+      });
+    }
+    
+    // Thêm sub-category mới
+    const result = await pool.query(
+      'INSERT INTO SubCategories (CategoryID, SubCategoryName, BannerURL) VALUES ($1, $2, $3) RETURNING *',
+      [CategoryID, SubCategoryName, BannerURL]
+    );
+    
+    res.status(201).json({
+      success: true,
+      message: 'Đã tạo sub-category mới thành công',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Lỗi khi tạo sub-category mới:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Đã xảy ra lỗi khi tạo sub-category mới',
+      error: error.message
+    });
+  }
+});
+
+//Cập nhật sub-categories
+app.put('/api/subcategories/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { CategoryID, SubCategoryName, BannerURL } = req.body;
+    
+    // Kiểm tra xem sub-category có tồn tại không
+    const subCategoryExists = await pool.query('SELECT * FROM SubCategories WHERE SubCategoryID = $1', [id]);
+    
+    if (subCategoryExists.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy sub-category với ID này'
+      });
+    }
+    
+    // Kiểm tra xem CategoryID có tồn tại không (nếu được cung cấp)
+    if (CategoryID) {
+      const categoryExists = await pool.query('SELECT 1 FROM Categories WHERE CategoryID = $1', [CategoryID]);
+      if (categoryExists.rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'CategoryID không tồn tại'
+        });
+      }
+    }
+    
+    // Kiểm tra xem SubCategoryName mới đã tồn tại chưa trong CategoryID này
+    if (CategoryID && SubCategoryName) {
+      const duplicateCheck = await pool.query(
+        'SELECT 1 FROM SubCategories WHERE CategoryID = $1 AND SubCategoryName = $2 AND SubCategoryID != $3',
+        [CategoryID, SubCategoryName, id]
+      );
+      
+      if (duplicateCheck.rows.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'SubCategoryName đã tồn tại trong Category này'
+        });
+      }
+    }
+    
+    // Cập nhật thông tin sub-category
+    const updateFields = [];
+    const values = [];
+    let paramCount = 1;
+    
+    if (CategoryID !== undefined) {
+      updateFields.push(`CategoryID = $${paramCount}`);
+      values.push(CategoryID);
+      paramCount++;
+    }
+    
+    if (SubCategoryName !== undefined) {
+      updateFields.push(`SubCategoryName = $${paramCount}`);
+      values.push(SubCategoryName);
+      paramCount++;
+    }
+    
+    if (BannerURL !== undefined) {
+      updateFields.push(`BannerURL = $${paramCount}`);
+      values.push(BannerURL);
+      paramCount++;
+    }
+    
+    if (updateFields.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Không có thông tin nào được cập nhật'
+      });
+    }
+    
+    values.push(id);
+    const updateQuery = `
+      UPDATE SubCategories 
+      SET ${updateFields.join(', ')} 
+      WHERE SubCategoryID = $${paramCount}
+      RETURNING *
+    `;
+    
+    const result = await pool.query(updateQuery, values);
+    
+    res.status(200).json({
+      success: true,
+      message: 'Đã cập nhật sub-category thành công',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Lỗi khi cập nhật sub-category:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Đã xảy ra lỗi khi cập nhật sub-category',
+      error: error.message
+    });
+  }
+});
+
+//Xóa sub-categories
+app.delete('/api/subcategories/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Kiểm tra xem sub-category có tồn tại không
+    const subCategoryExists = await pool.query('SELECT 1 FROM SubCategories WHERE SubCategoryID = $1', [id]);
+    
+    if (subCategoryExists.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy sub-category với ID này'
+      });
+    }
+    
+    // Xóa sub-category
+    await pool.query('DELETE FROM SubCategories WHERE SubCategoryID = $1', [id]);
+    
+    res.status(200).json({
+      success: true,
+      message: 'Đã xóa sub-category thành công'
+    });
+  } catch (error) {
+    console.error('Lỗi khi xóa sub-category:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Đã xảy ra lỗi khi xóa sub-category',
+      error: error.message
+    });
   }
 });
 
