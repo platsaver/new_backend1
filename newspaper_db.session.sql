@@ -12,16 +12,6 @@ ALTER TABLE Users
 ALTER COLUMN Role SET DEFAULT 'nguoidung';
 ALTER TABLE Users ADD COLUMN AvatarURL VARCHAR(255) DEFAULT NULL;
 
-
--- Specificially created for logout
-CREATE TABLE IF NOT EXISTS session (
-    sid VARCHAR NOT NULL COLLATE "default",
-    sess JSON NOT NULL,
-    expire TIMESTAMP(6) NOT NULL,
-    CONSTRAINT session_pkey PRIMARY KEY (sid)
-);
-select * from session
-
 CREATE TABLE Categories (
     CategoryID SERIAL PRIMARY KEY,
     CategoryName VARCHAR(255) NOT NULL,
@@ -492,24 +482,6 @@ delete from users;
 
 select * from users
 select * from posts
-update posts set featured = true
-INSERT INTO Categories (CategoryName) VALUES
-('Thời Sự'),
-('Kinh doanh'),
-('Bất động sản'),
-('Pháp luật');
-
-INSERT INTO SubCategories (CategoryID, SubCategoryName) VALUES
-((SELECT CategoryID FROM Categories WHERE CategoryName = 'Thời Sự'), 'Trong nước'),
-((SELECT CategoryID FROM Categories WHERE CategoryName = 'Thời Sự'), 'Quốc tế'),
-((SELECT CategoryID FROM Categories WHERE CategoryName = 'Kinh doanh'), 'Doanh nghiệp'),
-((SELECT CategoryID FROM Categories WHERE CategoryName = 'Kinh doanh'), 'Chứng khoán'),
-((SELECT CategoryID FROM Categories WHERE CategoryName = 'Kinh doanh'), 'Quốc tế'),
-((SELECT CategoryID FROM Categories WHERE CategoryName = 'Bất động sản'), 'Chính sách'),
-((SELECT CategoryID FROM Categories WHERE CategoryName = 'Bất động sản'), 'Thị trường'),
-((SELECT CategoryID FROM Categories WHERE CategoryName = 'Bất động sản'), 'Dự án'),
-((SELECT CategoryID FROM Categories WHERE CategoryName = 'Pháp luật'), 'Trong nước'),
-((SELECT CategoryID FROM Categories WHERE CategoryName = 'Pháp luật'), 'Quốc tế');
 
 select * from media;
 SELECT 
