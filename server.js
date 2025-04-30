@@ -523,6 +523,47 @@ app.get('/api/posts/subcategory/:subcategoryId/recent', async (req, res) => {
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
+
+// API để lấy 3 bài viết cùng chuyên mục
+app.get('/api/related-posts/:postId', async (req, res) => {
+  const { postId } = req.params;
+  
+  try {
+      // Lấy CategoryID của bài viết hiện tại
+      const postQuery = `
+          SELECT CategoryID 
+          FROM Posts 
+          WHERE PostID = $1
+      `;
+      const postResult = await pool.query(postQuery, [postId]);
+      
+      if (postResult.rows.length === 0) {
+          return res.status(404).json({ error: 'Bài viết không tồn tại' });
+      }
+      
+      const categoryId = postResult.rows[0].categoryid;
+      
+      // Lấy 3 bài viết cùng chuyên mục (khác với bài viết hiện tại)
+      const relatedQuery = `
+          SELECT PostID, Title, Content, CreatedAtDate, Status
+          FROM Posts 
+          WHERE CategoryID = $1 
+          AND PostID != $2 
+          AND Status = 'Published'
+          ORDER BY CreatedAtDate DESC
+          LIMIT 3
+      `;
+      const relatedResult = await pool.query(relatedQuery, [categoryId, postId]);
+      
+      res.json({
+          success: true,
+          data: relatedResult.rows
+      });
+  } catch (error) {
+      console.error('Error:', error);
+      res.status(500).json({ error: 'Lỗi server' });
+  }
+});
 // Tìm kiếm bài viết cần thiết
 app.get('/api/posts/search', async (req, res) => {
   try {
