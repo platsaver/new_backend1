@@ -1283,6 +1283,37 @@ app.delete('/api/media/:mediaId', async (req, res) => {
   }
 });
 
+//Cập nhật PostID cho mỗi ảnh
+app.put('/api/media/:mediaID', async (req, res) => {
+  const { mediaID } = req.params;
+  const { postID } = req.body;
+
+  if (!postID) {
+      return res.status(400).json({ error: 'postID is required' });
+  }
+
+  try {
+      const query = `
+          UPDATE Media
+          SET PostID = $1
+          WHERE MediaID = $2
+          RETURNING *;
+      `;
+
+      const result = await pool.query(query, [postID, mediaID]);
+
+      if (result.rowCount === 0) {
+          return res.status(404).json({ error: 'Media not found' });
+      }
+
+      res.status(200).json({ message: 'PostID updated successfully', media: result.rows[0] });
+  } catch (error) {
+      console.error('Error updating PostID:', error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
 // 5) API liên quan đến các subcategories và categories
 // API: Cập nhật banner cho Category
 app.post('/api/categories/:categoryId/banner', upload.single('banner'), handleMulterError, async (req, res) => {
