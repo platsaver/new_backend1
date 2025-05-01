@@ -413,6 +413,54 @@ app.get('/api/featured-posts/category/:categoryId', async (req, res) => {
   }
 });
 
+app.get('/api/featured-posts1/category/:categoryId', async (req, res) => {
+  try {
+    const categoryId = req.params.categoryId;
+    const query = `
+      SELECT
+        p.PostID AS postid,
+        p.Title AS title,
+        LEFT(p.Content, 200) AS Excerpt,
+        (SELECT m.MediaURL FROM Media m
+         WHERE m.PostID = p.PostID
+         ORDER BY m.CreatedAtDate DESC LIMIT 1) AS imageurl,
+        CONCAT('./posts/post', p.PostID, '.html') AS link,
+        COALESCE(u.Username, 'Unknown Author') AS author,
+        TO_CHAR(p.CreatedAtDate AT TIME ZONE 'Asia/Ho_Chi_Minh', 'HH12:MI AM TZH, DD/MM/YYYY') AS timestamp,
+        ARRAY[c.CategoryName] AS categories,
+        c.CategoryID AS categoryid
+      FROM Posts p
+      LEFT JOIN Users u ON p.UserID = u.UserID
+      LEFT JOIN Categories c ON p.CategoryID = c.CategoryID
+      WHERE p.CategoryID = $1 
+        AND p.Featured = true 
+        AND p.Status = 'Published'
+      ORDER BY p.CreatedAtDate DESC
+      LIMIT 4;
+    `;
+    
+    const result = await pool.query(query, [categoryId]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'No featured posts found for this category' });
+    }
+    
+    res.status(200).json({
+      success: true,
+      count: result.rows.length,
+      data: result.rows
+    });
+    
+  } catch (error) {
+    console.error('Error fetching featured posts by category:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch featured posts',
+      error: error.message 
+    });
+  }
+});
+
 // Lấy 5 bài viết mới nhất 
 app.get('/api/latest-posts', async (req, res) => {
   try {
