@@ -473,6 +473,7 @@ app.get('/api/featured-posts1/category/:categoryId', async (req, res) => {
       SELECT 
         p.PostID,
         p.Title,
+        p.Content,
         (SELECT m.MediaURL FROM Media m 
          WHERE m.PostID = p.PostID 
          ORDER BY m.CreatedAtDate DESC LIMIT 1) as imageUrl,
@@ -480,7 +481,8 @@ app.get('/api/featured-posts1/category/:categoryId', async (req, res) => {
         c.CategoryName as category,
         sc.SubCategoryName as subcategory,
         u.UserName as author,
-        p.CreatedAtDate as timestamp
+        p.CreatedAtDate as timestamp,
+        SUBSTRING(p.Content FROM 1 FOR 150) as excerpt
       FROM Posts p
       LEFT JOIN Users u ON p.UserID = u.UserID
       LEFT JOIN Categories c ON p.CategoryID = c.CategoryID
@@ -499,7 +501,7 @@ app.get('/api/featured-posts1/category/:categoryId', async (req, res) => {
       let timestamp = row.timestamp;
       if (!timestamp || isNaN(Date.parse(timestamp))) {
         console.warn(`Invalid timestamp for PostID ${row.postid}: ${timestamp}, using current date as fallback`);
-        timestamp = new Date().toISOString(); // Fallback nếu timestamp không hợp lệ
+        timestamp = new Date().toISOString();
       }
 
       return {
@@ -517,7 +519,7 @@ app.get('/api/featured-posts1/category/:categoryId', async (req, res) => {
           hour12: false,
           timeZone: 'Asia/Ho_Chi_Minh',
         }) + ' (GMT+7)',
-        excerpt: row.excerpt,
+        excerpt: row.excerpt || (row.content ? row.content.substring(0, 150) + (row.content.length > 150 ? '...' : '') : 'No excerpt available'),
         link: row.link,
       };
     });
@@ -545,8 +547,7 @@ app.get('/api/latest-posts', async (req, res) => {
         u.UserName as AuthorName,
         (SELECT m.MediaURL FROM Media m
          WHERE m.PostID = p.PostID AND m.MediaType LIKE 'image%'
-         ORDER BY m.CreatedAtDate ASC LIMIT 1) as imageUrl,
-        CONCAT('./posts/post', p.PostID, '.html') as link
+         ORDER BY m.CreatedAtDate ASC LIMIT 1) as imageUrl
       FROM
         Posts p
       LEFT JOIN
@@ -567,7 +568,6 @@ app.get('/api/latest-posts', async (req, res) => {
       imageUrl: post.imageurl 
         ? `${baseUrl}/${post.imageurl.replace(/^\/+/, '')}` // Remove leading slashes if any
         : `https://placehold.co/220x132?text=Post${post.postid}`,
-      link: `${baseUrl}${post.link.startsWith('./') ? post.link.substring(1) : post.link}`, // Format link with base URL
       isLast: index === result.rows.length - 1 // Mark the last item
     }));
     
