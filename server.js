@@ -545,30 +545,45 @@ app.get('/api/dashboard-featured-posts', async (req, res) => {
 });
 
 
-// Lấy 5 bài viết được tạo gần đây nhất theo một subcategory
+// Lấy 4 bài viết được tạo gần đây nhất theo một subcategory
 app.get('/api/posts/subcategory/:subcategoryId/recent', async (req, res) => {
   try {
     const subcategoryId = req.params.subcategoryId;
-    
+
     const query = `
-      SELECT PostID, UserID, CategoryID, SubCategoryID, Title, Content, 
-             CreatedAtDate, UpdatedAtDate, Status, Featured
-      FROM Posts
-      WHERE SubCategoryID = $1
-      ORDER BY CreatedAtDate DESC
-      LIMIT 5;
+      SELECT 
+          p.PostID, 
+          p.Title, 
+          (SELECT m.MediaURL 
+          FROM Media m 
+          WHERE m.PostID = p.PostID 
+          AND m.MediaType LIKE 'image%' 
+          ORDER BY m.CreatedAtDate ASC 
+          LIMIT 1) AS imageurl
+      FROM Posts p
+      WHERE p.SubCategoryID = $1
+      AND p.Status = 'Published'
+      ORDER BY p.CreatedAtDate DESC
+      LIMIT 4;
     `;
-    
+
     const result = await pool.query(query, [subcategoryId]);
-    
+
     if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'No posts found in this subcategory' });
+      return res.status(404).json({ success: false, message: 'No posts found in this subcategory' });
     }
-    
-    res.status(200).json(result.rows);
+
+    // Map the results to match the mock data structure
+    const posts = result.rows.map(post => ({
+      imageurl: post.imageurl,
+      title: post.title,
+      link: `/posts/post${post.postid}` // Generate link based on PostID
+    }));
+
+    res.status(200).json({ success: true, data: posts });
   } catch (error) {
     console.error('Error fetching recent posts by subcategory:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
 });
 
