@@ -11,6 +11,7 @@ const session = require('express-session');
 const PgSessionStore = require('connect-pg-simple')(session);
 const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
+const sanitizeHtml = require('sanitize-html');
 
 const app = express();
 const port = 3000; // Cổng server
@@ -331,35 +332,73 @@ app.put('/posts/:id', async (req, res) => {
     return res.status(400).json({ error: 'UserID, Title, and Content are required' });
   }
 
-  // Check if UserID exists
-  const userCheck = await pool.query('SELECT 1 FROM Users WHERE UserID = $1', [userid]);
-  if (userCheck.rowCount === 0) {
-    return res.status(400).json({ error: 'Invalid UserID: User does not exist' });
+  if (typeof title !== 'string' || title.trim().length === 0 || title.length > 255) {
+    return res.status(400).json({ error: 'Title must be a non-empty string with max 255 characters' });
   }
 
-  // Check CategoryID (if provided)
-  if (categoryid) {
-    const categoryCheck = await pool.query('SELECT 1 FROM Categories WHERE CategoryID = $1', [categoryid]);
-    if (categoryCheck.rowCount === 0) {
-      return res.status(400).json({ error: 'Invalid CategoryID: Category does not exist' });
-    }
+  if (typeof content !== 'string' || content.trim().length === 0) {
+    return res.status(400).json({ error: 'Content must be a non-empty string' });
   }
 
-  // Check SubCategoryID (if provided)
-  if (subcategoryid) {
-    const subCategoryCheck = await pool.query('SELECT 1 FROM SubCategories WHERE SubCategoryID = $1', [subcategoryid]);
-    if (subCategoryCheck.rowCount === 0) {
-      return res.status(400).json({ error: 'Invalid SubCategoryID: SubCategory does not exist' });
-    }
+  // Sanitize content to prevent XSS
+  const sanitizedContent = sanitizeHtml(content, {
+    allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']),
+    allowedAttributes: {
+      ...sanitizeHtml.defaults.allowedAttributes,
+      img: ['src', 'alt'],
+    },
+  });
+
+  // Validate status if provided
+  const validStatuses = ['Draft', 'Published', 'Archived'];
+  if (status && !validStatuses.includes(status)) {
+    return res.status(400).json({ error: `Status must be one of: ${validStatuses.join(', ')}` });
+  }
+
+  // Validate featured if provided
+  if (featured !== undefined && typeof featured !== 'boolean') {
+    return res.status(400).json({ error: 'Featured must be a boolean' });
   }
 
   try {
+    // Check if UserID exists
+    const userCheck = await pool.query('SELECT 1 FROM Users WHERE UserID = $1', [userid]);
+    if (userCheck.rowCount === 0) {
+      return res.status(400).json({ error: 'Invalid UserID: User does not exist' });
+    }
+
+    // Check CategoryID (if provided)
+    if (categoryid) {
+      const categoryCheck = await pool.query('SELECT 1 FROM Categories WHERE CategoryID = $1', [categoryid]);
+      if (categoryCheck.rowCount === 0) {
+        return res.status(400).json({ error: 'Invalid CategoryID: Category does not exist' });
+      }
+    }
+
+    // Check SubCategoryID (if provided)
+    if (subcategoryid) {
+      const subCategoryCheck = await pool.query('SELECT 1 FROM SubCategories WHERE SubCategoryID = $1', [subcategoryid]);
+      if (subCategoryCheck.rowCount === 0) {
+        return res.status(400).json({ error: 'Invalid SubCategoryID: SubCategory does not exist' });
+      }
+    }
+
+    // Fetch existing post to preserve fields if not provided
+    const existingPost = await pool.query('SELECT Status, Featured FROM Posts WHERE PostID = $1', [id]);
+    if (existingPost.rows.length === 0) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    const finalStatus = status || existingPost.rows[0].Status;
+    const finalFeatured = featured !== undefined ? featured : existingPost.rows[0].Featured;
+
+    // Update post
     const result = await pool.query(
       `UPDATE Posts
        SET UserID = $1, CategoryID = $2, SubCategoryID = $3, Title = $4, Content = $5, Status = $6, Featured = $7, UpdatedAtDate = CURRENT_TIMESTAMP
        WHERE PostID = $8
        RETURNING PostID AS id, UserID AS userid, CategoryID AS categoryid, SubCategoryID AS subcategoryid, Title AS title, Content AS content, Status AS status, Featured AS featured, CreatedAtDate AS createdatdate, UpdatedAtDate AS updatedatdate`,
-      [userid, categoryid || null, subcategoryid || null, title, content, status || 'Draft', featured, id]
+      [userid, categoryid || null, subcategoryid || null, title, sanitizedContent, finalStatus, finalFeatured, id]
     );
 
     if (result.rows.length === 0) {
@@ -661,7 +700,6 @@ app.get('/api/related-posts/:postId', async (req, res) => {
   const { postId } = req.params;
   
   try {
-      // Lấy CategoryID của bài viết hiện tại
       const postQuery = `
           SELECT CategoryID 
           FROM Posts 
@@ -675,14 +713,20 @@ app.get('/api/related-posts/:postId', async (req, res) => {
       
       const categoryId = postResult.rows[0].categoryid;
       
-      // Lấy 3 bài viết cùng chuyên mục (khác với bài viết hiện tại)
       const relatedQuery = `
-          SELECT PostID, Title, Content, CreatedAtDate, Status
-          FROM Posts 
-          WHERE CategoryID = $1 
-          AND PostID != $2 
-          AND Status = 'Published'
-          ORDER BY CreatedAtDate DESC
+          SELECT 
+              p.PostID, 
+              p.Title, 
+              p.Content, 
+              p.CreatedAtDate, 
+              p.Status,
+              m.MediaURL 
+          FROM Posts p
+          LEFT JOIN Media m ON p.PostID = m.PostID 
+          WHERE p.CategoryID = $1 
+          AND p.PostID != $2 
+          AND p.Status = 'Published'
+          ORDER BY p.CreatedAtDate DESC
           LIMIT 3
       `;
       const relatedResult = await pool.query(relatedQuery, [categoryId, postId]);
@@ -696,6 +740,7 @@ app.get('/api/related-posts/:postId', async (req, res) => {
       res.status(500).json({ error: 'Lỗi server' });
   }
 });
+
 // Tìm kiếm bài viết cần thiết
 app.get('/api/posts/search', async (req, res) => {
   try {
@@ -732,9 +777,20 @@ app.get('/api/posts/search', async (req, res) => {
 
     // Xây dựng câu truy vấn SQL động
     let queryText = `
-      SELECT PostID, UserID, CategoryID, SubCategoryID, Title, Content, 
-             CreatedAtDate, UpdatedAtDate, Status, Featured
-      FROM Posts
+      SELECT 
+          p.PostID, 
+          p.UserID, 
+          p.CategoryID, 
+          p.SubCategoryID, 
+          p.Title, 
+          p.Content, 
+          p.CreatedAtDate, 
+          p.UpdatedAtDate, 
+          p.Status, 
+          p.Featured, 
+          m.MediaURL AS ImageUrl
+      FROM Posts p
+      LEFT JOIN Media m ON p.PostID = m.PostID
       WHERE 1=1
     `;
     
@@ -846,7 +902,10 @@ app.get('/api/posts/search', async (req, res) => {
 
     // Trả về kết quả tìm kiếm và thông tin phân trang
     res.status(200).json({
-      posts: result.rows,
+      posts: result.rows.map(post => ({
+        ...post,
+        link: `/article/${post.PostID}`, // Thêm link động
+      })),
       pagination: {
         total: totalPosts,
         limit: parsedLimit,
