@@ -231,6 +231,61 @@ app.post('/posts', async (req, res) => {
   }
 });
 
+//Xem chi tiết 1 post
+app.get('/api/post/:postID', async (req, res) => {
+  const { postID } = req.params;
+  try {
+    const query = `
+      SELECT 
+        p.PostID,
+        p.Title,
+        p.Content,
+        p.CreatedAtDate,
+        p.Status,
+        p.Featured,
+        u.UserName AS Author,
+        c.CategoryName,
+        sc.SubCategoryName,
+        m.MediaURL AS ImageURL
+      FROM Posts p
+      INNER JOIN Users u ON p.UserID = u.UserID
+      LEFT JOIN Categories c ON p.CategoryID = c.CategoryID
+      LEFT JOIN SubCategories sc ON p.SubCategoryID = sc.SubCategoryID
+      LEFT JOIN Media m ON p.PostID = m.PostID
+      WHERE p.PostID = $1;
+    `;
+    const result = await pool.query(query, [postID]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    const post = result.rows[0];
+    res.status(200).json({
+      postID: post.postid,
+      title: post.title,
+      content: post.content, // Nội dung dạng HTML từ CKEditor
+      author: post.author,
+      timestamp: new Date(post.createdatdate).toLocaleString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'Asia/Ho_Chi_Minh',
+      }) + ' (GMT+7)',
+      categories: [post.categoryname, post.subcategoryname].filter(Boolean),
+      imageUrl: post.imageurl ? `${post.imageurl}` : null,
+      status: post.status,
+      featured: post.featured,
+    });
+  } catch (error) {
+    console.error('Error fetching post:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
 //Liệt kê tất cả các bài viết hiện tại có trong hệ thống 
 app.get('/posts', async (req, res) => {
   try {
@@ -363,6 +418,7 @@ app.get('/api/featured-posts', async (req, res) => {
 
     // Format the response to match the Article component's props
     const formattedPosts = result.rows.map((post) => ({
+      postID: post.postid, // Thêm postID
       categories: [post.categoryname].filter(Boolean),
       title: post.title,
       author: post.author,
@@ -376,8 +432,6 @@ app.get('/api/featured-posts', async (req, res) => {
         timeZone: 'Asia/Ho_Chi_Minh',
       }) + ' (GMT+7)',
       excerpt: post.excerpt,
-      link: `./posts/post${post.postid}.html`,
-      // Thêm tiền tố /uploads/ nếu MediaURL chỉ chứa tên file
       imageUrl: post.imageurl ? `${post.imageurl}` : null,
     }));
 
@@ -398,8 +452,7 @@ app.get('/api/featured-posts/category/:categoryId', async (req, res) => {
         p.Title,
         (SELECT m.MediaURL FROM Media m 
         WHERE m.PostID = p.PostID 
-        ORDER BY m.CreatedAtDate DESC LIMIT 1) as imageUrl,
-        CONCAT('./posts/post', p.PostID, '.html') as link
+        ORDER BY m.CreatedAtDate DESC LIMIT 1) as imageUrl
       FROM Posts p
       WHERE p.CategoryID = $1 AND p.Featured = true AND p.Status = 'Published'
       ORDER BY p.CreatedAtDate DESC
