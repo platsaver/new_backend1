@@ -442,7 +442,7 @@ app.get('/api/featured-posts', async (req, res) => {
   }
 });
 
-// lấy 5 bài viết nổi bật nhất của một category 
+// lấy 4 bài viết nổi bật nhất của một category 
 app.get('/api/featured-posts/category/:categoryId', async (req, res) => {
   try {
     const categoryId = req.params.categoryId;
@@ -470,47 +470,62 @@ app.get('/api/featured-posts1/category/:categoryId', async (req, res) => {
   try {
     const categoryId = req.params.categoryId;
     const query = `
-      SELECT
-        p.PostID AS postid,
-        p.Title AS title,
-        LEFT(p.Content, 200) AS Excerpt,
-        (SELECT m.MediaURL FROM Media m
-         WHERE m.PostID = p.PostID
-         ORDER BY m.CreatedAtDate DESC LIMIT 1) AS imageurl,
-        CONCAT('./posts/post', p.PostID, '.html') AS link,
-        COALESCE(u.Username, 'Unknown Author') AS author,
-        TO_CHAR(p.CreatedAtDate AT TIME ZONE 'Asia/Ho_Chi_Minh', 'HH12:MI AM TZH, DD/MM/YYYY') AS timestamp,
-        ARRAY[c.CategoryName] AS categories,
-        c.CategoryID AS categoryid
+      SELECT 
+        p.PostID,
+        p.Title,
+        (SELECT m.MediaURL FROM Media m 
+         WHERE m.PostID = p.PostID 
+         ORDER BY m.CreatedAtDate DESC LIMIT 1) as imageUrl,
+        CONCAT('./posts/post', p.PostID, '.html') as link,
+        c.CategoryName as category,
+        sc.SubCategoryName as subcategory,
+        u.UserName as author,
+        p.CreatedAtDate as timestamp
       FROM Posts p
       LEFT JOIN Users u ON p.UserID = u.UserID
       LEFT JOIN Categories c ON p.CategoryID = c.CategoryID
-      WHERE p.CategoryID = $1 
-        AND p.Featured = true 
-        AND p.Status = 'Published'
+      LEFT JOIN SubCategories sc ON p.SubCategoryID = sc.SubCategoryID
+      WHERE p.CategoryID = $1 AND p.Featured = true AND p.Status = 'Published'
       ORDER BY p.CreatedAtDate DESC
       LIMIT 4;
     `;
-    
     const result = await pool.query(query, [categoryId]);
-    
+
     if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'No featured posts found for this category' });
+      return res.status(404).json({ success: false, message: 'No featured posts found' });
     }
-    
-    res.status(200).json({
-      success: true,
-      count: result.rows.length,
-      data: result.rows
+
+    const formattedRows = result.rows.map(row => {
+      let timestamp = row.timestamp;
+      if (!timestamp || isNaN(Date.parse(timestamp))) {
+        console.warn(`Invalid timestamp for PostID ${row.postid}: ${timestamp}, using current date as fallback`);
+        timestamp = new Date().toISOString(); // Fallback nếu timestamp không hợp lệ
+      }
+
+      return {
+        postid: row.postid,
+        imageurl: row.imageurl,
+        categories: [row.category, row.subcategory].filter(Boolean),
+        title: row.title,
+        author: row.author,
+        timestamp: new Date(timestamp).toLocaleString('en-GB', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+          timeZone: 'Asia/Ho_Chi_Minh',
+        }) + ' (GMT+7)',
+        excerpt: row.excerpt,
+        link: row.link,
+      };
     });
-    
+
+    res.status(200).json({ success: true, data: formattedRows });
   } catch (error) {
     console.error('Error fetching featured posts by category:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to fetch featured posts',
-      error: error.message 
-    });
+    res.status(500).json({ success: false, message: 'Internal Server Error' });
   }
 });
 
@@ -626,8 +641,9 @@ app.get('/api/posts/subcategory/:subcategoryId/recent', async (req, res) => {
       return res.status(404).json({ success: false, message: 'No posts found in this subcategory' });
     }
 
-    // Map the results to match the mock data structure
+    // Map the results to include postID
     const posts = result.rows.map(post => ({
+      postid: post.postid, // Thêm postID vào response
       imageurl: post.imageurl,
       title: post.title,
       link: `/posts/post${post.postid}` // Generate link based on PostID
