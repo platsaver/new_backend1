@@ -716,11 +716,8 @@ app.get('/api/related-posts/:postId', async (req, res) => {
       const relatedQuery = `
           SELECT 
               p.PostID, 
-              p.Title, 
-              p.Content, 
-              p.CreatedAtDate, 
-              p.Status,
-              m.MediaURL 
+              p.Title,
+              m.MediaURL as ImageURL
           FROM Posts p
           LEFT JOIN Media m ON p.PostID = m.PostID 
           WHERE p.CategoryID = $1 
