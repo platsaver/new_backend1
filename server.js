@@ -684,8 +684,7 @@ app.get('/api/posts/subcategory/:subcategoryId/recent', async (req, res) => {
     const posts = result.rows.map(post => ({
       postid: post.postid, // Thêm postID vào response
       imageurl: post.imageurl,
-      title: post.title,
-      link: `/posts/post${post.postid}` // Generate link based on PostID
+      title: post.title
     }));
 
     res.status(200).json({ success: true, data: posts });
@@ -728,13 +727,80 @@ app.get('/api/related-posts/:postId', async (req, res) => {
       `;
       const relatedResult = await pool.query(relatedQuery, [categoryId, postId]);
       
+      const posts = relatedResult.rows.map(post => ({
+          postid: post.postid,
+          imageurl: `http://localhost:3000${post.imageurl}`,
+          title: post.title
+      }));
+      
       res.json({
           success: true,
-          data: relatedResult.rows
+          data: posts
       });
   } catch (error) {
       console.error('Error:', error);
       res.status(500).json({ error: 'Lỗi server' });
+  }
+});
+
+//Có thể bạn quan tâm
+app.get('/api/posts/:postId/related', async (req, res) => {
+  try {
+    const { postId } = req.params;
+    
+    // Kiểm tra xem bài đăng có tồn tại không
+    const postExists = await pool.query(
+      'SELECT EXISTS(SELECT 1 FROM Posts WHERE PostID = $1)',
+      [postId]
+    );
+    
+    if (!postExists.rows[0].exists) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy bài đăng với ID được chỉ định'
+      });
+    }
+
+    // Truy vấn để lấy các tags của bài đăng
+    const postTagsQuery = await pool.query(
+      'SELECT TagID FROM PostTags WHERE PostID = $1',
+      [postId]
+    );
+
+    // Nếu bài đăng không có tags nào
+    if (postTagsQuery.rows.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: []
+      });
+    }
+
+    // Chuyển đổi mảng các tags thành dạng phù hợp cho câu truy vấn IN
+    const tagIds = postTagsQuery.rows.map(row => row.tagid);
+
+    // Truy vấn lấy 3 bài đăng gần nhất có chứa ít nhất một trong các tags của bài gốc
+    // nhưng không phải là bài gốc
+    const relatedPostsQuery = await pool.query(`
+      SELECT DISTINCT p.PostID AS postid, m.MediaURL AS imageurl, p.Title AS title
+      FROM Posts p
+      JOIN PostTags pt ON p.PostID = pt.PostID
+      JOIN Media m ON p.PostID = m.PostID
+      WHERE pt.TagID IN (${tagIds.join(',')})
+      AND p.PostID != $1
+      ORDER BY p.PostID DESC
+      LIMIT 3;
+    `, [postId]);
+
+    return res.status(200).json({
+      success: true,
+      data: relatedPostsQuery.rows
+    });
+  } catch (error) {
+    console.error('Lỗi khi lấy bài đăng liên quan:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Đã xảy ra lỗi khi xử lý yêu cầu'
+    });
   }
 });
 
@@ -1067,212 +1133,201 @@ app.get('/api/posts/status', async (req, res) => {
 });
 
 //3) API liên quan đến quản lý tag
-// Tạo một tag mới
-app.post('/api/tags', async (req, res) => {
-  const { TagName } = req.body;
-
-  // Kiểm tra xem TagName có được cung cấp và hợp lệ
-  if (!TagName || typeof TagName !== 'string' || TagName.trim() === '') {
-      return res.status(400).json({ error: 'TagName is required and must be a non-empty string' });
-  }
-
-  try {
-      // Thêm tag mới vào bảng Tags
-      const result = await pool.query(
-          'INSERT INTO Tags (TagName) VALUES ($1) RETURNING TagID, TagName',
-          [TagName.trim()]
-      );
-
-      res.status(201).json({
-          message: 'Tag created successfully',
-          tag: result.rows[0]
-      });
-  } catch (error) {
-      // Xử lý lỗi trùng lặp TagName (do constraint UNIQUE)
-      if (error.code === '23505') {
-          return res.status(400).json({ error: 'TagName already exists' });
-      }
-      console.error(error);
-      res.status(500).json({ error: 'Internal server error' });
-  }
-});
-// Lấy danh sách của tất cả các tag
+// Get all tags
 app.get('/api/tags', async (req, res) => {
   try {
-    const { search } = req.query;
-    let query = 'SELECT * FROM Tags';
-    let params = [];
-
-    if (search) {
-      query += ' WHERE TagName ILIKE $1';
-      params.push(`%${search}%`);
-    }
-
-    query += ' ORDER BY TagName ASC';
-    
-    const result = await pool.query(query, params);
-    res.status(200).json(result.rows);
+    const query = `
+      SELECT TagID, TagName
+      FROM Tags
+      ORDER BY TagName
+    `;
+    const result = await pool.query(query);
+    res.json({ success: true, data: result.rows });
   } catch (error) {
     console.error('Error fetching tags:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Server error' });
   }
 });
-// Gắn tags vào posts
-app.post('/api/posts/:postId/tags', async (req, res) => {
-  const { postId } = req.params;
-  const { tagId, postId: bodyPostId } = req.body; // Lấy tagId và postId từ body
 
-  // Kiểm tra postId trong params
-  const postIdNum = Number(postId);
-  if (isNaN(postIdNum) || postIdNum <= 0) {
-      return res.status(400).json({ error: 'postId must be a valid positive number' });
-  }
+app.post('/api/tags', async (req, res) => {
+  const { TagName, PostID } = req.body;
 
-  // Kiểm tra postId trong body có khớp với params không
-  if (bodyPostId && Number(bodyPostId) !== postIdNum) {
-      return res.status(400).json({ error: 'postId in body does not match postId in URL' });
-  }
-
-  // Kiểm tra tagId là mảng và không rỗng
-  if (!Array.isArray(tagId) || tagId.length === 0) {
-      return res.status(400).json({ error: 'tagId must be a non-empty array' });
-  }
-
-  // Kiểm tra tất cả tagId là số hợp lệ
-  const invalidTagIds = tagId.filter(id => isNaN(id) || id <= 0);
-  if (invalidTagIds.length > 0) {
-      return res.status(400).json({ error: 'All tagIds must be valid positive numbers' });
+  if (!TagName) {
+    return res.status(400).json({ error: 'TagName is required' });
   }
 
   try {
-      // Kiểm tra xem PostID có tồn tại
-      const postCheck = await pool.query('SELECT 1 FROM Posts WHERE PostID = $1', [postIdNum]);
-      if (postCheck.rowCount === 0) {
-          return res.status(404).json({ error: 'Post not found' });
+    // Check if tag already exists
+    const tagCheckQuery = `
+      SELECT TagID 
+      FROM Tags 
+      WHERE TagName = $1
+    `;
+    const tagCheckResult = await pool.query(tagCheckQuery, [TagName]);
+
+    let tagId;
+
+    if (tagCheckResult.rows.length > 0) {
+      return res.status(400).json({ error: 'Tag already exists' });
+    }
+
+    // Create new tag
+    const tagInsertQuery = `
+      INSERT INTO Tags (TagName)
+      VALUES ($1)
+      RETURNING TagID, TagName
+    `;
+    const tagInsertResult = await pool.query(tagInsertQuery, [TagName]);
+    tagId = tagInsertResult.rows[0].tagid;
+
+    // Optionally associate with a post
+    if (PostID) {
+      // Verify post exists
+      const postCheckQuery = `
+        SELECT PostID 
+        FROM Posts 
+        WHERE PostID = $1
+      `;
+      const postCheckResult = await pool.query(postCheckQuery, [PostID]);
+
+      if (postCheckResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Post not found' });
       }
 
-      // Kiểm tra xem tất cả TagID có tồn tại
-      const tagCheck = await pool.query(
-          'SELECT TagID FROM Tags WHERE TagID = ANY($1)',
-          [tagId]
-      );
-      if (tagCheck.rows.length !== tagId.length) {
-          return res.status(400).json({ error: 'One or more tags not found' });
+      // Check if association already exists
+      const assocCheckQuery = `
+        SELECT 1 
+        FROM PostTags 
+        WHERE PostID = $1 AND TagID = $2
+      `;
+      const assocCheckResult = await pool.query(assocCheckQuery, [PostID, tagId]);
+
+      if (assocCheckResult.rows.length === 0) {
+        // Create association
+        const assocInsertQuery = `
+          INSERT INTO PostTags (PostID, TagID)
+          VALUES ($1, $2)
+        `;
+        await pool.query(assocInsertQuery, [PostID, tagId]);
       }
+    }
 
-      // Gắn tags vào post
-      const values = tagId.map(tagId => `(${postIdNum}, ${tagId})`).join(',');
-      await pool.query(
-          `INSERT INTO PostTags (PostID, TagID) VALUES ${values} 
-           ON CONFLICT (PostID, TagID) DO NOTHING`
-      );
+    res.json({
+      success: true,
+      data: { TagID: tagId, TagName },
+      message: PostID ? 'Tag created and associated with post' : 'Tag created'
+    });
+  } catch (error) {
+    console.error('Error creating tag:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
-      // Lấy danh sách tag hiện tại của post
-      const result = await pool.query(
-          `SELECT t.TagID, t.TagName 
-           FROM PostTags pt 
-           JOIN Tags t ON pt.TagID = t.TagID 
-           WHERE pt.PostID = $1`,
-          [postIdNum]
-      );
+// Associate a tag with multiple posts
+app.post('/api/tags/:tagId/posts', async (req, res) => {
+  const { tagId } = req.params;
+  const { PostIDs } = req.body;
 
-      res.status(201).json({
-          message: 'Tags added to post successfully',
-          postId: postIdNum,
-          tags: result.rows
+  if (!Array.isArray(PostIDs) || PostIDs.length === 0) {
+    return res.status(400).json({ error: 'PostIDs array is required' });
+  }
+
+  try {
+    // Verify tag exists
+    const tagCheckQuery = `
+      SELECT TagID 
+      FROM Tags 
+      WHERE TagID = $1
+    `;
+    const tagCheckResult = await pool.query(tagCheckQuery, [tagId]);
+
+    if (tagCheckResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Tag not found' });
+    }
+
+    // Verify all posts exist
+    const postCheckQuery = `
+      SELECT PostID 
+      FROM Posts 
+      WHERE PostID = ANY($1)
+    `;
+    const postCheckResult = await pool.query(postCheckQuery, [PostIDs]);
+
+    if (postCheckResult.rows.length !== PostIDs.length) {
+      return res.status(404).json({ error: 'One or more posts not found' });
+    }
+
+    // Associate tag with each post
+    const assocInsertQuery = `
+      INSERT INTO PostTags (PostID, TagID)
+      VALUES ($1, $2)
+      ON CONFLICT DO NOTHING
+    `;
+    for (const postId of PostIDs) {
+      await pool.query(assocInsertQuery, [postId, tagId]);
+    }
+
+    res.json({
+      success: true,
+      message: `Tag associated with ${PostIDs.length} post(s)`
+    });
+  } catch (error) {
+    console.error('Error associating tag with posts:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET tất cả PostTags
+app.get('/api/posttags', async (req, res) => {
+  try {
+    const query = `
+      SELECT pt.postid, pt.tagid, p.title AS posttitle, t.tagname 
+      FROM posttags pt
+      JOIN posts p ON pt.postid = p.postid
+      JOIN tags t ON pt.tagid = t.tagid
+      ORDER BY pt.tagid, pt.postid
+    `;
+    
+    const result = await pool.query(query);
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching PostTags:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch PostTags'
+    });
+  }
+});
+
+// DELETE một liên kết PostTag
+app.delete('/api/posttags/:postId/:tagId', async (req, res) => {
+  try {
+    const { postId, tagId } = req.params;
+    
+    const query = 'DELETE FROM posttags WHERE postid = $1 AND tagid = $2';
+    const result = await pool.query(query, [postId, tagId]);
+    
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'PostTag association not found'
       });
+    }
+    
+    res.json({
+      success: true,
+      message: 'PostTag association deleted successfully'
+    });
   } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Internal server error' });
-  }
-});
-// Liệt kê posts và các tags tương ứng 
-app.get('/api/posts/tags', async (req, res) => {
-  try {
-      const result = await pool.query(`
-          SELECT 
-              p.PostID,
-              COALESCE(
-                  ARRAY_AGG(t.TagName) FILTER (WHERE t.TagName IS NOT NULL), 
-                  '{}'
-              ) as Tags
-          FROM Posts p
-          LEFT JOIN PostTags pt ON p.PostID = pt.PostID
-          LEFT JOIN Tags t ON pt.TagID = t.TagID
-          GROUP BY p.PostID
-          ORDER BY p.PostID
-      `);
-
-      res.json(result.rows);
-  } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Internal server error' });
-  }
-});
-// Xóa tags khỏi post
-app.delete('/api/posts/:postId/tags', async (req, res) => {
-  const { postId } = req.params;
-  const { tagIds } = req.body; // Mảng các TagID cần xóa
-
-  // Kiểm tra postId trong params
-  const postIdNum = Number(postId);
-  if (isNaN(postIdNum) || postIdNum <= 0) {
-      return res.status(400).json({ error: 'postId must be a valid positive number' });
-  }
-
-  // Kiểm tra tagIds là mảng và không rỗng
-  if (!Array.isArray(tagIds) || tagIds.length === 0) {
-      return res.status(400).json({ error: 'tagIds must be a non-empty array' });
-  }
-
-  // Kiểm tra tất cả tagIds là số hợp lệupdate users set role='nguoidung' where username='testuser1'
-  const invalidTagIds = tagIds.filter(id => isNaN(id) || id <= 0);
-  if (invalidTagIds.length > 0) {
-      return res.status(400).json({ error: 'All tagIds must be valid positive numbers' });
-  }
-
-  try {
-      // Kiểm tra xem PostID có tồn tại
-      const postCheck = await pool.query('SELECT 1 FROM Posts WHERE PostID = $1', [postIdNum]);
-      if (postCheck.rowCount === 0) {
-          return res.status(404).json({ error: 'Post not found' });
-      }
-
-      // Kiểm tra xem tất cả TagID có tồn tại
-      const tagCheck = await pool.query(
-          'SELECT TagID FROM Tags WHERE TagID = ANY($1)',
-          [tagIds]
-      );
-      if (tagCheck.rows.length !== tagIds.length) {
-          return res.status(400).json({ error: 'One or more tags not found' });
-      }
-
-      // Xóa các tags khỏi post
-      const deleteResult = await pool.query(
-          `DELETE FROM PostTags 
-           WHERE PostID = $1 AND TagID = ANY($2) 
-           RETURNING TagID`,
-          [postIdNum, tagIds]
-      );
-
-      // Lấy danh sách tag hiện tại của post sau khi xóa
-      const remainingTags = await pool.query(
-          `SELECT t.TagID, t.TagName 
-           FROM PostTags pt 
-           JOIN Tags t ON pt.TagID = t.TagID 
-           WHERE pt.PostID = $1`,
-          [postIdNum]
-      );
-
-      res.status(200).json({
-          message: 'Tags removed from post successfully',
-          postId: postIdNum,
-          removedTagIds: deleteResult.rows.map(row => row.TagID),
-          remainingTags: remainingTags.rows
-      });
-  } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: 'Internal server error' });
+    console.error('Error deleting PostTag:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete PostTag association'
+    });
   }
 });
 

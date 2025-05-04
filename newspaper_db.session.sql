@@ -69,7 +69,7 @@ CREATE TABLE PostTags (
 
 CREATE TABLE Tags (
     TagID SERIAL PRIMARY KEY,
-    TagName VARCHAR(100) UNIQUE NOT NULL
+    TagName VARCHAR(100) UNIQUE NULL
 );
 /*1 post có thể sở hữu nhiều media, nhưng 1 media chỉ có thể thuộc về 1 post*/
 CREATE TABLE Media (
