@@ -1540,51 +1540,58 @@ app.post('/api/categories/:categoryId/banner', upload.single('banner'), handleMu
 
   const categoryIdNum = Number(categoryId);
   if (isNaN(categoryIdNum) || categoryIdNum <= 0) {
-      return res.status(400).json({ error: 'categoryId must be a valid positive number' });
+    return res.status(400).json({ error: 'categoryId must be a valid positive number' });
   }
 
   if (!req.file) {
-      return res.status(400).json({ error: 'No banner image provided' });
+    return res.status(400).json({ error: 'No banner image provided' });
   }
 
   try {
-      // Kiểm tra xem CategoryID có tồn tại
-      const categoryCheck = await pool.query(
-          'SELECT BannerURL FROM Categories WHERE CategoryID = $1',
-          [categoryIdNum]
-      );
-      if (categoryCheck.rowCount === 0) {
-          await fs.unlink(req.file.path).catch(err => console.error(`Error deleting file: ${err}`));
-          return res.status(404).json({ error: 'Category not found' });
-      }
-
-      // Xóa banner cũ nếu có
-      const oldBannerUrl = categoryCheck.rows[0].BannerURL;
-      if (typeof oldBannerUrl === 'string' && oldBannerUrl.trim() !== '') {
-          const oldFilePath = path.join(__dirname, 'public', oldBannerUrl);
-          await fs.unlink(oldFilePath).catch(err => console.error(`Error deleting old banner: ${err}`));
-      }
-
-      // Lưu banner mới
-      const fileType = await fileTypeFromFile(req.file.path);
-      const bannerUrl = `/uploads/${req.file.filename}`;
-
-      const result = await pool.query(
-          `UPDATE Categories 
-           SET BannerURL = $1 
-           WHERE CategoryID = $2 
-           RETURNING CategoryID, CategoryName, BannerURL`,
-          [bannerUrl, categoryIdNum]
-      );
-
-      res.status(200).json({
-          message: 'Banner updated successfully',
-          category: result.rows[0]
-      });
-  } catch (error) {
+    // Check if CategoryID exists
+    const categoryCheck = await pool.query(
+      'SELECT BannerURL FROM Categories WHERE CategoryID = $1',
+      [categoryIdNum]
+    );
+    if (categoryCheck.rowCount === 0) {
       await fs.unlink(req.file.path).catch(err => console.error(`Error deleting file: ${err}`));
-      console.error(error);
-      res.status(500).json({ error: 'Internal server error' });
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    // Delete old banner if it exists
+    const oldBannerUrl = categoryCheck.rows[0].BannerURL;
+    if (typeof oldBannerUrl === 'string' && oldBannerUrl.trim() !== '') {
+      const oldFilePath = path.join(__dirname, 'public', oldBannerUrl);
+      await fs.unlink(oldFilePath).catch(err => console.error(`Error deleting old banner: ${err}`));
+    }
+
+    // Validate file type using fileTypeFromBuffer
+    const fileBuffer = await fs.readFile(req.file.path);
+    const fileType = await fileTypeFromBuffer(fileBuffer);
+    if (!fileType || !['image/jpeg', 'image/png', 'image/gif'].includes(fileType.mime)) {
+      await fs.unlink(req.file.path).catch(err => console.error(`Error deleting file: ${err}`));
+      return res.status(400).json({ error: 'Invalid file type. Only JPEG, PNG, and GIF are allowed.' });
+    }
+
+    // Save new banner
+    const bannerUrl = `/uploads/${req.file.filename}`;
+
+    const result = await pool.query(
+      `UPDATE Categories 
+       SET BannerURL = $1 
+       WHERE CategoryID = $2 
+       RETURNING CategoryID, CategoryName, BannerURL`,
+      [bannerUrl, categoryIdNum]
+    );
+
+    res.status(200).json({
+      message: 'Banner updated successfully',
+      category: result.rows[0]
+    });
+  } catch (error) {
+    await fs.unlink(req.file.path).catch(err => console.error(`Error deleting file: ${err}`));
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
