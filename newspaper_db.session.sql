@@ -91,7 +91,6 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
-
 -- Tạo trigger
 CREATE TRIGGER trigger_update_post_timestamp
 BEFORE UPDATE ON Posts

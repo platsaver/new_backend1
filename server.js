@@ -694,6 +694,30 @@ app.get('/api/posts/subcategory/:subcategoryId/recent', async (req, res) => {
   }
 });
 
+//API để lấy toàn bộ bài viết thuộc một SubCategory ở trạng thái Published
+app.get('/posts/subcategory/:subCategoryID', async (req, res) => {
+  try {
+      const { subCategoryID } = req.params;
+
+      const query = `
+          SELECT 
+              p.*,
+              m.MediaURL
+          FROM Posts p
+          LEFT JOIN Media m ON p.PostID = m.PostID
+          WHERE p.SubCategoryID = $1 AND p.Status = 'Published'
+          ORDER BY p.CreatedAtDate DESC;
+      `;
+
+      const { rows } = await pool.query(query, [subCategoryID]);
+
+      res.json(rows);
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Lỗi khi lấy bài viết' });
+  }
+});
+
 // API để lấy 3 bài viết cùng chuyên mục
 app.get('/api/related-posts/:postId', async (req, res) => {
   const { postId } = req.params;
