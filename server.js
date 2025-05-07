@@ -702,9 +702,13 @@ app.get('/posts/subcategory/:subCategoryID', async (req, res) => {
       const query = `
           SELECT 
               p.*,
-              m.MediaURL
+              m.MediaURL,
+              s.BannerURL AS SubCategoryBannerURL,
+              LEFT(p.Content, 300) AS excerpt,
+              p.CreatedAtDate
           FROM Posts p
           LEFT JOIN Media m ON p.PostID = m.PostID
+          LEFT JOIN SubCategories s ON p.SubCategoryID = s.SubCategoryID
           WHERE p.SubCategoryID = $1 AND p.Status = 'Published'
           ORDER BY p.CreatedAtDate DESC;
       `;
