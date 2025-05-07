@@ -340,15 +340,6 @@ app.put('/posts/:id', async (req, res) => {
     return res.status(400).json({ error: 'Content must be a non-empty string' });
   }
 
-  // Sanitize content to prevent XSS
-  const sanitizedContent = sanitizeHtml(content, {
-    allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']),
-    allowedAttributes: {
-      ...sanitizeHtml.defaults.allowedAttributes,
-      img: ['src', 'alt'],
-    },
-  });
-
   // Validate status if provided
   const validStatuses = ['Draft', 'Published', 'Archived'];
   if (status && !validStatuses.includes(status)) {
@@ -398,7 +389,7 @@ app.put('/posts/:id', async (req, res) => {
        SET UserID = $1, CategoryID = $2, SubCategoryID = $3, Title = $4, Content = $5, Status = $6, Featured = $7, UpdatedAtDate = CURRENT_TIMESTAMP
        WHERE PostID = $8
        RETURNING PostID AS id, UserID AS userid, CategoryID AS categoryid, SubCategoryID AS subcategoryid, Title AS title, Content AS content, Status AS status, Featured AS featured, CreatedAtDate AS createdatdate, UpdatedAtDate AS updatedatdate`,
-      [userid, categoryid || null, subcategoryid || null, title, sanitizedContent, finalStatus, finalFeatured, id]
+      [userid, categoryid || null, subcategoryid || null, title, content, finalStatus, finalFeatured, id]
     );
 
     if (result.rows.length === 0) {
