@@ -1626,8 +1626,15 @@ app.post('/api/subcategories/:subCategoryId/banner', upload.single('banner'), ha
           await fs.unlink(oldFilePath).catch(err => console.error(`Error deleting old banner: ${err}`));
       }
 
+      // Xác định loại file
+      const fileBuffer = await fs.readFile(req.file.path);
+      const fileType = await fileTypeFromBuffer(fileBuffer);
+      if (!fileType || !['image/jpeg', 'image/png', 'image/gif'].includes(fileType.mime)) {
+          await fs.unlink(req.file.path).catch(err => console.error(`Error deleting file: ${err}`));
+          return res.status(400).json({ error: 'Invalid file type. Only JPEG, PNG, and GIF are allowed' });
+      }
+
       // Lưu banner mới
-      const fileType = await fileTypeFromFile(req.file.path);
       const bannerUrl = `/uploads/${req.file.filename}`;
 
       const result = await pool.query(
