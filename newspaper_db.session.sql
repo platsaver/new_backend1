@@ -477,6 +477,7 @@ delete from comments;
 delete from posttags;
 delete from users;
 delete from media;
+delete from posts
 
 select * from users
 select * from posts
