@@ -298,6 +298,25 @@ app.get('/posts', async (req, res) => {
   }
 });
 
+//Liệt kê tất cả các bài viết hiện tại có trong hệ thống theo id người dùng
+app.get('/posts/user/:userId', async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    if (isNaN(userId)) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
+
+    const result = await pool.query(
+      'SELECT * FROM Posts WHERE UserID = $1 ORDER BY CreatedAtDate DESC',
+      [userId]
+    );
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error('Error fetching user posts:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 //Liệt kê tất cả các bài viết hiện tại có trong hệ thống theo status='Published'
 app.get('/posts/published', async (req, res) => {
   try {
@@ -2081,6 +2100,64 @@ app.get('/api/comments/:postId', async (req, res) => {
   }
 });
 
+// Xem tất cả các comment theo userid
+app.get('/api/comments/user/:userId', async (req, res) => {
+  try {
+      const userId = parseInt(req.params.userId);
+      const { page = 1, limit = 10 } = req.query;
+      
+      // Validate input
+      if (isNaN(userId)) {
+          return res.status(400).json({ error: 'Invalid UserID' });
+      }
+
+      const offset = (page - 1) * limit;
+      
+      // Build query
+      let query = `
+          SELECT c.CommentID, c.PostID, c.Content, c.CreatedAtDate, 
+                 c.UpdatedAtDate, c.Status, c.ModerationNote,
+                 u.Username as ModeratorName
+          FROM Comments c
+          LEFT JOIN Users u ON c.ModeratorID = u.UserID
+          WHERE c.UserID = $1 AND c.Status = 'approved'
+      `;
+      const queryParams = [userId];
+
+      // Add pagination
+      query += ` ORDER BY c.CreatedAtDate DESC LIMIT $2 OFFSET $3`;
+      queryParams.push(parseInt(limit), offset);
+
+      // Execute query
+      const result = await pool.query(query, queryParams);
+
+      // Get total count for pagination
+      const countQuery = `
+          SELECT COUNT(*) as total 
+          FROM Comments 
+          WHERE UserID = $1 AND Status = 'approved'
+      `;
+      const countParams = [userId];
+      const countResult = await pool.query(countQuery, countParams);
+
+      // Prepare response
+      const response = {
+          comments: result.rows,
+          pagination: {
+              page: parseInt(page),
+              limit: parseInt(limit),
+              total: parseInt(countResult.rows[0].total),
+              totalPages: Math.ceil(countResult.rows[0].total / limit)
+          }
+      };
+
+      res.json(response);
+  } catch (error) {
+      console.error('Error fetching comments:', error);
+      res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 //Cập nhật comment
 app.put('/api/comments/:commentId', async (req, res) => {
   const { commentId } = req.params;
@@ -2137,10 +2214,16 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid username or password' });
     }
 
-    // Generate JWT token
+    // Generate JWT token with role in payload
     const token = jwt.sign(
-      { userId: user.userid, username: user.username, email: user.email },
+      { 
+        userId: user.userid, 
+        username: user.username, 
+        email: user.email, 
+        role: user.role // Thêm role vào payload
+      },
       'bdaa0bdba4d98131e7c699e78a8c0104dcd767d3789f0adbdd7cc580eff4fc9d', // Replace with your secret key (store in environment variable)
+      { expiresIn: '1h' } // Thêm thời gian hết hạn cho token
     );
 
     // Set the JWT token in an HTTP-only cookie
@@ -2154,12 +2237,31 @@ app.post('/api/login', async (req, res) => {
     // Send success response
     res.json({
       message: 'Login successful',
-      user: { id: user.userid, username: user.username, email: user.email },
+      user: { 
+        id: user.userid, 
+        username: user.username, 
+        email: user.email, 
+        role: user.role // Trả về role trong phản hồi để frontend có thể sử dụng ngay
+      },
     });
   } catch (err) {
     console.error('Error during login:', err);
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+// API: Check authentication status
+app.get('/api/check-auth', authenticateToken, (req, res) => {
+  // If the middleware passes, the token is valid, and req.user contains the decoded user data
+  res.json({
+    isAuthenticated: true,
+    user: {
+      id: req.user.userId,
+      username: req.user.username,
+      email: req.user.email,
+      role: req.user.role,
+    },
+  });
 });
 
 // API: Logout
@@ -2177,6 +2279,7 @@ app.get('/api/check-auth', authenticateToken, (req, res) => {
       id: req.user.userId,
       username: req.user.username,
       email: req.user.email,
+      role: req.user.role,
     },
   });
 });
