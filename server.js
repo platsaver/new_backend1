@@ -11,7 +11,6 @@ const session = require('express-session');
 const PgSessionStore = require('connect-pg-simple')(session);
 const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
-const sanitizeHtml = require('sanitize-html');
 
 const app = express();
 const port = 3000; // Cổng server
@@ -1677,6 +1676,9 @@ app.post('/api/categories/:categoryId/banner', upload.single('banner'), handleMu
       [bannerUrl, categoryIdNum]
     );
 
+    // Send SSE event to all clients
+    sendEventToAllClients('bannerUpdated', { category: result.rows[0] });
+
     res.status(200).json({
       message: 'Banner updated successfully',
       category: result.rows[0]
@@ -2527,6 +2529,39 @@ app.get('/api/users/:id', async (req, res) => {
           success: false,
           message: 'Internal server error'
       });
+  }
+});
+
+//Lấy ảnh và username của user
+app.get('/api/users/:id/profile', async (req, res) => {
+  const { id } = req.params;
+
+  // Validate user ID
+  if (!id || isNaN(id)) {
+    return res.status(400).json({ error: 'Invalid user ID' });
+  }
+
+  try {
+    const query = `
+      SELECT UserName AS username, AvatarURL AS avatarurl
+      FROM Users
+      WHERE UserID = $1
+    `;
+    const values = [id];
+    const result = await pool.query(query, values);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = result.rows[0];
+    res.status(200).json({
+      username: user.username,
+      avatarURL: user.avatarurl ? `http://localhost:3000${user.avatarurl}` : null,
+    });
+  } catch (error) {
+    console.error(`Error fetching profile for user ID ${id}:`, error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
