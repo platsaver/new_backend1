@@ -188,6 +188,7 @@ app.get('/events', (req, res) => {
 });
 // Hàm gửi sự kiện tới tất cả client
 function sendEventToAllClients(eventName, data) {
+  console.log(`Sending event ${eventName} to ${clients.size} clients`);
   const eventData = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
   clients.forEach((client) => {
     client.write(eventData);
