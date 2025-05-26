@@ -7,6 +7,7 @@ CREATE TABLE Users (
     CreatedAtDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UpdatedAtDate TIMESTAMP DEFAULT NULL
 );
+select * from users;
 ALTER TABLE Users ADD COLUMN PlainPassword VARCHAR(255);
 ALTER TABLE Users
 ALTER COLUMN Role SET DEFAULT 'nguoidung';

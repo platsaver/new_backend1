@@ -1326,6 +1326,62 @@ app.post('/api/tags', async (req, res) => {
   }
 });
 
+//Cập nhật tag
+app.put('/api/tags/:id', async (req, res) => {
+  try {
+    const tagId = parseInt(req.params.id);
+    const { TagName } = req.body;
+
+    if (!TagName || TagName.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        error: 'Tag name is required'
+      });
+    }
+
+    // Kiểm tra tag có tồn tại không
+    const checkQuery = 'SELECT TagID FROM Tags WHERE TagID = $1';
+    const existingTag = await pool.query(checkQuery, [tagId]);
+    
+    if (!existingTag.rows || existingTag.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Tag not found'
+      });
+    }
+
+    // Kiểm tra tên tag mới có bị trùng không (trừ chính nó)
+    const duplicateQuery = 'SELECT TagID FROM Tags WHERE TagName = $1 AND TagID != $2';
+    const duplicateTag = await pool.query(duplicateQuery, [TagName.trim(), tagId]);
+    
+    if (duplicateTag.rows && duplicateTag.rows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        error: 'Tag name already exists'
+      });
+    }
+
+    // Cập nhật tag
+    const updateQuery = 'UPDATE Tags SET TagName = $1 WHERE TagID = $2 RETURNING TagID, TagName';
+    const updatedTag = await pool.query(updateQuery, [TagName.trim(), tagId]);
+
+    res.json({
+      success: true,
+      data: {
+        TagID: updatedTag.rows[0].tagid,
+        TagName: updatedTag.rows[0].tagname
+      },
+      message: 'Tag updated successfully'
+    });
+  } catch (error) {
+    console.error('Error updating tag:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update tag'
+    });
+  }
+});
+
 // Associate a tag with multiple posts
 app.post('/api/tags/:tagId/posts', async (req, res) => {
   const { tagId } = req.params;
@@ -1365,14 +1421,27 @@ app.post('/api/tags/:tagId/posts', async (req, res) => {
       INSERT INTO PostTags (PostID, TagID)
       VALUES ($1, $2)
       ON CONFLICT DO NOTHING
+      RETURNING PostID, TagID
     `;
+    const associatedPosts = [];
     for (const postId of PostIDs) {
-      await pool.query(assocInsertQuery, [postId, tagId]);
+      const result = await pool.query(assocInsertQuery, [postId, tagId]);
+      if (result.rows[0]) {
+        associatedPosts.push(result.rows[0].postid);
+      }
     }
+
+    // Send SSE event
+    const eventData = {
+      tagId: parseInt(tagId), // Ensure numeric ID
+      postIds: associatedPosts // Array of successfully associated PostIDs
+    };
+    console.log('Tag association event data:', eventData);
+    sendEventToAllClients('tagAssociated', eventData);
 
     res.json({
       success: true,
-      message: `Tag associated with ${PostIDs.length} post(s)`
+      message: `Tag associated with ${associatedPosts.length} post(s)`
     });
   } catch (error) {
     console.error('Error associating tag with posts:', error);
@@ -1940,10 +2009,10 @@ app.post('/api/subcategories', async (req, res) => {
     
     // Gửi sự kiện SSE khi tạo subcategory thành công
     sendEventToAllClients('subcategoryCreated', {
-      subCategoryId: result.rows[0].SubCategoryID,
-      categoryId: result.rows[0].CategoryID,
-      subCategoryName: result.rows[0].SubCategoryName,
-      bannerUrl: result.rows[0].BannerURL
+      subCategoryId: result.rows[0].subcategoryid,
+      categoryId: result.rows[0].categoryid,
+      subCategoryName: result.rows[0].subcategoryname,
+      bannerUrl: result.rows[0].bannerurl
     });
 
     res.status(201).json({
@@ -1967,18 +2036,22 @@ app.put('/api/subcategories/:id', async (req, res) => {
     const { id } = req.params;
     const { CategoryID, SubCategoryName, BannerURL } = req.body;
     
+    // Check if subcategory exists
     const subCategoryExists = await pool.query('SELECT * FROM SubCategories WHERE SubCategoryID = $1', [id]);
     
     if (subCategoryExists.rows.length === 0) {
+      console.log(`SubCategoryID ${id} not found`);
       return res.status(404).json({
         success: false,
         message: 'Không tìm thấy sub-category với ID này'
       });
     }
     
+    // Validate CategoryID if provided
     if (CategoryID) {
       const categoryExists = await pool.query('SELECT 1 FROM Categories WHERE CategoryID = $1', [CategoryID]);
       if (categoryExists.rows.length === 0) {
+        console.log(`CategoryID ${CategoryID} not found`);
         return res.status(400).json({
           success: false,
           message: 'CategoryID không tồn tại'
@@ -1986,6 +2059,7 @@ app.put('/api/subcategories/:id', async (req, res) => {
       }
     }
     
+    // Check for duplicate SubCategoryName
     if (CategoryID && SubCategoryName) {
       const duplicateCheck = await pool.query(
         'SELECT 1 FROM SubCategories WHERE CategoryID = $1 AND SubCategoryName = $2 AND SubCategoryID != $3',
@@ -1993,6 +2067,7 @@ app.put('/api/subcategories/:id', async (req, res) => {
       );
       
       if (duplicateCheck.rows.length > 0) {
+        console.log(`Duplicate SubCategoryName ${SubCategoryName} for CategoryID ${CategoryID}`);
         return res.status(400).json({
           success: false,
           message: 'SubCategoryName đã tồn tại trong Category này'
@@ -2023,6 +2098,7 @@ app.put('/api/subcategories/:id', async (req, res) => {
     }
     
     if (updateFields.length === 0) {
+      console.log('No fields to update for SubCategoryID', id);
       return res.status(400).json({
         success: false,
         message: 'Không có thông tin nào được cập nhật'
@@ -2034,18 +2110,33 @@ app.put('/api/subcategories/:id', async (req, res) => {
       UPDATE SubCategories 
       SET ${updateFields.join(', ')} 
       WHERE SubCategoryID = $${paramCount}
-      RETURNING *
+      RETURNING SubCategoryID, CategoryID, SubCategoryName, BannerURL
     `;
     
     const result = await pool.query(updateQuery, values);
     
-    // Gửi sự kiện SSE khi cập nhật subcategory thành công
-    sendEventToAllClients('subcategoryUpdated', {
-      subCategoryId: result.rows[0].SubCategoryID,
-      categoryId: result.rows[0].CategoryID,
-      subCategoryName: result.rows[0].SubCategoryName,
-      bannerUrl: result.rows[0].BannerURL
-    });
+    if (!result.rows[0]) {
+      console.error(`UPDATE query returned no rows for SubCategoryID ${id}`);
+      return res.status(500).json({
+        success: false,
+        message: 'Cập nhật sub-category thất bại, không có dữ liệu trả về'
+      });
+    }
+    
+    // Log raw database result
+    console.log('Raw database result:', result.rows[0]);
+    
+    // Map database result to camelCase for SSE event
+    const eventData = {
+      subCategoryId: result.rows[0].subcategoryid || result.rows[0].SubCategoryID,
+      categoryId: result.rows[0].categoryid || result.rows[0].CategoryID,
+      subCategoryName: result.rows[0].subcategoryname || result.rows[0].SubCategoryName,
+      bannerUrl: result.rows[0].bannerurl || result.rows[0].BannerURL
+    };
+    
+    console.log('Subcategory data before SSE:', eventData);
+    
+    sendEventToAllClients('subcategoryUpdated', eventData);
 
     res.status(200).json({
       success: true,
